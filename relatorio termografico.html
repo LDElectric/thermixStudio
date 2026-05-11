@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Relatório Termográfico - Identidade Fiel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(180deg, #eef2f9 0%, #e8edf7 100%);
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: #1f2430;
+            padding: 20px;
+        }
+
+        .document {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 34px;
+            border: 1px solid #d1d9e8;
+            border-radius: 14px;
+            box-shadow: 0 8px 26px rgba(22, 32, 54, 0.10);
+        }
+
+        .main-title {
+            color: #ff6600;
+            font-size: 22pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 5px;
+            letter-spacing: 0.4px;
+        }
+
+        .header-info {
+            text-align: center;
+            font-size: 11pt;
+            margin-bottom: 10px;
+            color: #41506c;
+        }
+
+        .header-separator {
+            border-bottom: 2px solid #ff6600;
+            margin-bottom: 20px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: stretch;
+            background: linear-gradient(90deg, #f7faff 0%, #eef3fb 100%);
+            border: 1px solid #d6deed;
+            margin: 20px 0 10px 0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .red-bar {
+            width: 8px;
+            background-color: #ff6600;
+        }
+
+        .section-title {
+            padding: 8px 12px;
+            font-weight: bold;
+            font-size: 11pt;
+            text-transform: uppercase;
+            color: #1f2f4d;
+        }
+
+        /* Tabelas de Dados */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+
+        .report-meta-table {
+            table-layout: fixed;
+        }
+
+        .report-meta-table td {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            white-space: normal;
+            vertical-align: top;
+        }
+
+        td {
+            border: 1px solid #bfcadf;
+            padding: 8px;
+            font-size: 10pt;
+            vertical-align: middle;
+        }
+
+        .data-table td {
+            padding: 7px 8px;
+        }
+
+        .label {
+            font-weight: bold;
+            background-color: #f5f8fd;
+            width: 20%;
+            color: #2a3a58;
+        }
+
+        /* Área de Imagens */
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .img-box {
+            border: 1px solid #bfcadf;
+            text-align: center;
+            min-width: 0;
+        }
+
+        .img-frame {
+            width: 100%;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .img-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+            display: block;
+            background-color: #000;
+        }
+
+        .img-placeholder {
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .img-footer {
+            background: #eef3fb;
+            border-top: 1px solid #c8d3e7;
+            padding: 4px;
+            font-size: 9pt;
+            font-weight: bold;
+            color: #223554;
+        }
+
+        /* Estilo para Parecer Técnico */
+        .text-area {
+            height: 80px;
+            vertical-align: top;
+            padding-top: 10px;
+        }
+
+        .checkbox-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        .box {
+            width: 12px;
+            height: 12px;
+            border: 1px solid #000;
+            display: inline-block;
+            margin-right: 4px;
+        }
+
+        .box.checked {
+            background: #2B3D4F;
+            position: relative;
+        }
+
+        .box.checked::after {
+            content: "";
+            position: absolute;
+            left: 3px;
+            top: 0;
+            width: 4px;
+            height: 8px;
+            border: solid #FFFFFF;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .measurement-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0;
+            table-layout: fixed;
+        }
+
+        .measurement-table th,
+        .measurement-table td {
+            border: 1px solid #c2ccde;
+            padding: 6px 7px;
+            font-size: 9.3pt;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        .measurement-table th {
+            background: #e9f0fb;
+            color: #1f2f4d;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .measurement-empty {
+            text-align: center;
+            color: #6B7280;
+            font-style: italic;
+        }
+
+        .measurement-note {
+            margin-top: 6px;
+            font-size: 8.8pt;
+            color: #5F6775;
+            line-height: 1.35;
+        }
+
+        @media print {
+            body { background: none; padding: 0; }
+            .document { border: none; box-shadow: none; border-radius: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="document">
+    <div class="main-title">RELATÓRIO TERMOGRÁFICO</div>
+    <div class="header-info">Relatório Técnico de Inspeção N°: {{OS_NUMERO}}</div>
+    
+    <div class="header-separator"></div>
+
+    <table class="report-meta-table">
+        <colgroup>
+            <col style="width: 20%;">
+            <col style="width: 30%;">
+            <col style="width: 20%;">
+            <col style="width: 30%;">
+        </colgroup>
+        <tr>
+            <td class="label">Instalação:</td>
+            <td colspan="3">{{INSTALACAO_NOME}}</td>
+        </tr>
+        <tr>
+            <td class="label">Equipamento:</td>
+            <td>{{EQUIPAMENTO}}</td>
+            <td class="label">Data:</td>
+            <td>{{DATA_RELATORIO}}</td>
+        </tr>
+    </table>
+
+    <div class="section-header">
+        <div class="red-bar"></div>
+        <div class="section-title">REGISTROS FOTOGRÁFICOS</div>
+    </div>
+
+    <div class="image-grid">
+        <div class="img-box">
+            <div class="img-frame">
+                <div class="img-placeholder">IMAGEM IR</div>
+            </div>
+            <div class="img-footer">Imagem Térmica (IR)</div>
+        </div>
+        <div class="img-box">
+            <div class="img-frame">
+                <div class="img-placeholder">IMAGEM VISUAL</div>
+            </div>
+            <div class="img-footer">Imagem Visual (Luz Visível)</div>
+        </div>
+    </div>
+
+    <div class="section-header">
+        <div class="red-bar"></div>
+        <div class="section-title">PARÂMETROS TÉCNICOS E MEDIÇÕES</div>
+    </div>
+
+    <table>
+        <tr>
+            <td class="label">Emissividade:</td>
+            <td>{{EMISSIVIDADE}}</td>
+            <td class="label">Ponto Máximo:</td>
+            <td>{{TEMP_MAX}} °C</td>
+        </tr>
+        <tr>
+            <td class="label">Classificação:</td>
+            <td colspan="3">
+                <div class="checkbox-area">
+                    <span><span class="box"></span> Normal</span>
+                    <span><span class="box"></span> Alerta</span>
+                    <span><span class="box"></span> Crítico</span>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <div class="section-header">
+        <div class="red-bar"></div>
+        <div class="section-title">PARECER TÉCNICO E RECOMENDAÇÕES</div>
+    </div>
+
+    <table>
+        <tr><td class="label">Descrição da Anomalia:</td></tr>
+        <tr><td class="text-area">{{OBSERVACAO_1}}</td></tr>
+        <tr><td class="label">Ação Recomendada:</td></tr>
+        <tr><td class="text-area">{{RECOMENDACAO_1}}</td></tr>

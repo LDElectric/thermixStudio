@@ -1,0 +1,64 @@
+# === Pasta de desenvolvimento / materiais de trabalho ===
+Termogramas/
+testes/
+diferenças/
+modos e paletas/
+artifacts/
+.vs/
+.venv/
+
+# === Arquivos de notas e documentos de desenvolvimento ===
+TRATAMENTO
+log.txt
+Workflow.txt
+layout geral.md
+Plano de Desenvolvimento — Thermix Studio.txt
+Recomendação Técnica para Extração de Imagem IR e luz visivel.txt
+FLIR_Tools_Plus_Manual.pdf
+
+# === Banco de dados portátil (gerado em execução, não faz parte do fonte) ===
+thermixStudioDB/
+
+# === Build outputs das dependências (obj / bin) ===
+**/bin/
+**/obj/
+
+# === .NET ===
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+*.rsuser
+*.userosscache
+*.sln.docstates
+
+# === Visual Studio cache/options files ===
+.vs/
+*.VC.db
+*.VC.VC.opendb
+*.VC.opendb
+
+# === Python venv e cache ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# === OS ===
+Thumbs.db
+.DS_Store
+# ignore local publish output
+publish/
