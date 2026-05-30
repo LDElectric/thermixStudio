@@ -482,12 +482,12 @@ public sealed class ThermalModeEngine : IThermalModeEngine
         double? reticleCenterY = null,
         bool drawReticle = true)
     {
+        // ── Fase 1: GDI+ para caixas, bordas e retícula (curvas suaves) ──
         using var bitmap = BitmapFromBgra(width, height, pixels);
         using var g = Graphics.FromImage(bitmap);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
         g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
-        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
         float sx = width / 320f;
         float sy = height / 240f;
@@ -496,62 +496,27 @@ public sealed class ThermalModeEngine : IThermalModeEngine
 
         using var boxBrush = new SolidBrush(Color.Black);
         using var borderPen = new Pen(Color.Black, Math.Max(1f, s));
-        using var textBrush = new SolidBrush(Color.White);
-        using var shadowBrush = new SolidBrush(Color.Black);
         using var scalePen = new Pen(Color.Black, Math.Max(1.5f, 1.6f * s));
         using var reticleShadowPen = new Pen(Color.Black, Math.Max(2.4f, 2.8f * s));
         using var reticlePen = new Pen(Color.White, Math.Max(1.4f, 1.65f * s));
-        using var valueFont = CreateFlirSpotFont(Math.Max(19f, 19.4f * s));
-        using var smallFont = CreateFlirUiFont(Math.Max(17f, 17.2f * s));
 
         float radius = 1.5f * s;
 
-        DrawTemperatureBox(
-            g,
-            new RectangleF(4 * sx, 4 * sy, 88 * sx, 21 * sy),
-            FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate),
-            valueFont,
-            boxBrush,
-            borderPen,
-            textBrush,
-            shadowBrush,
-            radius,
-            3 * sx,
-            0.6f * sy,
-            drawMidlineApproximation: spotIsApproximate,
-            unitText: "°C");
+        // Caixa do spot (topo-esquerda) — apenas a caixa preta, sem texto
+        var spotBoxRect = new RectangleF(4 * sx, 4 * sy, 88 * sx, 21 * sy);
+        DrawBoxOnly(g, spotBoxRect, boxBrush, borderPen, radius);
 
         if (!visibleMode)
         {
-            var topScaleValue = scaleMaxC ?? maxTemperatureC;
-            var bottomScaleValue = scaleMinC ?? minTemperatureC;
+            // Caixa do Tmax (topo-direita)
+            var topBoxRect = new RectangleF(277 * sx, 4 * sy, 39 * sx, 21 * sy);
+            DrawBoxOnly(g, topBoxRect, boxBrush, borderPen, radius);
 
-            DrawTemperatureBox(
-                g,
-                new RectangleF(277 * sx, 4 * sy, 39 * sx, 21 * sy),
-                FormatTemperature(topScaleValue, compact: true),
-                smallFont,
-                boxBrush,
-                borderPen,
-                textBrush,
-                shadowBrush,
-                radius,
-                3 * sx,
-                2.8f * sy);
+            // Caixa do Tmin (base-direita)
+            var bottomBoxRect = new RectangleF(278 * sx, 214 * sy, 38 * sx, 21 * sy);
+            DrawBoxOnly(g, bottomBoxRect, boxBrush, borderPen, radius);
 
-            DrawTemperatureBox(
-                g,
-                new RectangleF(278 * sx, 214 * sy, 38 * sx, 21 * sy),
-                FormatTemperature(bottomScaleValue, compact: true),
-                smallFont,
-                boxBrush,
-                borderPen,
-                textBrush,
-                shadowBrush,
-                radius,
-                3 * sx,
-                2.8f * sy);
-
+            // Borda da barra de escala
             var scaleOuter = new RectangleF(303 * sx, 28 * sy, 12 * sx, 181 * sy);
             g.DrawRectangle(scalePen, scaleOuter.X, scaleOuter.Y, scaleOuter.Width, scaleOuter.Height);
         }
@@ -564,8 +529,60 @@ public sealed class ThermalModeEngine : IThermalModeEngine
             DrawReticle(g, reticleX, reticleY, sx, sy, reticlePen);
         }
 
+        // Converter GDI+ de volta para buffer BGRA
         var rendered = BgraFromBitmap(bitmap);
         Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
+
+        // ── Fase 2: Fonte bitmap FLIR — texto pixel-perfect sobre o buffer BGRA ──
+        int bitmapScale = Math.Max(1, (int)Math.Round(s));
+        var (tr, tg, tb) = FlirBitmapFont.FlirTextColor;
+
+        // Spot temperature (topo-esquerda) — fonte maior
+        int spotScale = Math.Max(1, (int)Math.Round(s * 1.4));
+        var spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
+        var unitText = " \u00B0C";
+        var fullSpotText = spotText + unitText;
+        int spotTextX = (int)(7 * sx);
+        int spotTextY = (int)(7 * sy);
+        FlirBitmapFont.DrawText(pixels, width, height, fullSpotText, spotTextX, spotTextY, spotScale, tr, tg, tb);
+
+        if (!visibleMode)
+        {
+            var topScaleValue = scaleMaxC ?? maxTemperatureC;
+            var bottomScaleValue = scaleMinC ?? minTemperatureC;
+
+            // Tmax (topo-direita) — fonte menor
+            var topText = FormatTemperature(topScaleValue, compact: true);
+            int topTextW = FlirBitmapFont.MeasureText(topText, bitmapScale);
+            int topTextX = (int)(315 * sx) - topTextW;
+            int topTextY = (int)(8 * sy);
+            FlirBitmapFont.DrawText(pixels, width, height, topText, topTextX, topTextY, bitmapScale, tr, tg, tb);
+
+            // Tmin (base-direita) — fonte menor
+            var bottomText = FormatTemperature(bottomScaleValue, compact: true);
+            int bottomTextW = FlirBitmapFont.MeasureText(bottomText, bitmapScale);
+            int bottomTextX = (int)(315 * sx) - bottomTextW;
+            int bottomTextY = (int)(218 * sy);
+            FlirBitmapFont.DrawText(pixels, width, height, bottomText, bottomTextX, bottomTextY, bitmapScale, tr, tg, tb);
+        }
+    }
+
+    /// <summary>
+    /// Desenha apenas a caixa preta com bordas arredondadas (sem texto).
+    /// O texto será desenhado pela fonte bitmap na fase 2.
+    /// </summary>
+    private static void DrawBoxOnly(Graphics g, RectangleF rect, Brush boxBrush, Pen borderPen, float radius)
+    {
+        if (radius > 0)
+        {
+            FillRoundedRectangle(g, boxBrush, rect, radius);
+            DrawRoundedRectangle(g, borderPen, rect, radius);
+        }
+        else
+        {
+            g.FillRectangle(boxBrush, rect);
+            g.DrawRectangle(borderPen, rect.X, rect.Y, rect.Width, rect.Height);
+        }
     }
 
     private static void FillRoundedRectangle(Graphics g, Brush brush, RectangleF bounds, float radius)
