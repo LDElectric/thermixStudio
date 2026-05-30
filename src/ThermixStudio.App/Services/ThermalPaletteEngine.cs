@@ -274,7 +274,7 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         double cdfRange = cdfMax - cdfMin;
         if (cdfRange <= 0) cdfRange = 1;
 
-       // 3. Mapear os valores pelo CDF Equalizado (Distribuição Não-Linear igual FLIR)
+        // 3. Mapear os valores pelo CDF Equalizado (Distribuição Não-Linear igual FLIR)
         i = 0;
         // Limites de clipping do sensor da câmera (defaults FLIR)
         double sensorMinC = -40.0;
@@ -300,25 +300,11 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                     continue;
                 }
 
-                // Prioridade 2: Below/Above da escala visual (fora do range visual selecionado)
-                if (useLimitColors && val < minVal)
-                {
-                    WriteLimitColor(belowColor, pixels, dest);
-                    continue;
-                }
-                if (useLimitColors && val > maxVal)
-                {
-                    WriteLimitColor(aboveColor, pixels, dest);
-                    continue;
-                }
-
+                // Removed Priority 2: Below/Above da escala visual.
+                // FLIR uses Above/Below for Alarms. For regular visual scale, it clamps to palette limits.
                 double binPosition = ((val - minVal) / range) * (numBins - 1);
                 double linearNorm  = Math.Clamp((val - minVal) / range, 0.0, 1.0);
                 double heNorm      = (InterpolateCdf(cdf, binPosition) - cdfMin) / cdfRange;
-                heNorm = Math.Clamp(heNorm, 0.0, 1.0);
-
-                // Mapeamento Híbrido: 70% Linear + 30% Plateau Equalization
-                // Calibrado por grid search pixel-a-pixel contra a câmera FLIR (2.jpg)
                 double normalized = (linearNorm * 0.70) + (heNorm * 0.30);
 
                 // Two-zone smooth curve — replica o DDE da FLIR:

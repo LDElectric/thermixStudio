@@ -483,6 +483,26 @@ public sealed partial class MainViewModel
 
     private static (double min, double max) GetPreferredThermalRange(ThermalImageData image)
     {
+        if (image.Metadata.VisualScaleMinC.HasValue && image.Metadata.VisualScaleMaxC.HasValue)
+        {
+            var visualMin = image.Metadata.VisualScaleMinC.Value;
+            var visualMax = image.Metadata.VisualScaleMaxC.Value;
+            if (double.IsFinite(visualMin) && double.IsFinite(visualMax) && visualMax > visualMin)
+            {
+                return (visualMin, visualMax);
+            }
+        }
+
+        if (image.Metadata.PaletteScaleMinC.HasValue && image.Metadata.PaletteScaleMaxC.HasValue)
+        {
+            var min = image.Metadata.PaletteScaleMinC.Value;
+            var max = image.Metadata.PaletteScaleMaxC.Value;
+            if (double.IsFinite(min) && double.IsFinite(max) && max > min)
+            {
+                return (min, max);
+            }
+        }
+
         return GetTemperatureMatrixRange(image);
     }
 
