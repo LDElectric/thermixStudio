@@ -117,7 +117,7 @@ public sealed partial class MainViewModel
                     null,
                     null,
                     spotIsApproximate,
-                    AutoScaleEnabled);
+                    false);
             }
 
             DisplayImage = null;
@@ -161,7 +161,7 @@ public sealed partial class MainViewModel
                 null,
                 null,
                 spotIsApproximate,
-                AutoScaleEnabled);
+                false);
         }
 
         CurrentScaleLabel = FormatVisibleScaleLabel(_loadedImage, displayScale.min, displayScale.max);
@@ -482,31 +482,35 @@ public sealed partial class MainViewModel
 
     private static (double min, double max) GetPreferredThermalRange(ThermalImageData image)
     {
-        if (image.Metadata.VisualScaleMinC.HasValue &&
-            image.Metadata.VisualScaleMaxC.HasValue)
-        {
-            var visualMin = image.Metadata.VisualScaleMinC.Value;
-            var visualMax = image.Metadata.VisualScaleMaxC.Value;
-            if (double.IsFinite(visualMin) && double.IsFinite(visualMax) && visualMax > visualMin)
-            {
-                return (visualMin, visualMax);
-            }
-        }
-
-        // FLIR: usar a escala da barra (23,0 / 42,2 °C), não o min/max da matriz nem a conversão −273,15.
-        if (IsFlirCamera(image.Metadata) &&
-            image.Metadata.PaletteScaleMinC.HasValue &&
-            image.Metadata.PaletteScaleMaxC.HasValue)
-        {
-            var min = image.Metadata.PaletteScaleMinC.Value;
-            var max = image.Metadata.PaletteScaleMaxC.Value;
-            if (double.IsFinite(min) && double.IsFinite(max) && max > min)
-            {
-                return (min, max);
-            }
-        }
-
         return GetTemperatureMatrixRange(image);
+    }
+
+    [RelayCommand]
+    private void IncrementLevelMin()
+    {
+        AutoScaleEnabled = false;
+        LevelMinC += 0.1;
+    }
+
+    [RelayCommand]
+    private void DecrementLevelMin()
+    {
+        AutoScaleEnabled = false;
+        LevelMinC -= 0.1;
+    }
+
+    [RelayCommand]
+    private void IncrementLevelMax()
+    {
+        AutoScaleEnabled = false;
+        LevelMaxC += 0.1;
+    }
+
+    [RelayCommand]
+    private void DecrementLevelMax()
+    {
+        AutoScaleEnabled = false;
+        LevelMaxC -= 0.1;
     }
 
     private static (double min, double max) GetDisplayedScaleRange(

@@ -213,6 +213,8 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         var useLimitColors = UsesFlirLimitColors(metadata);
         var belowColor = ResolveYCrCbLimitColor(metadata?.PaletteBelowColorYCrCb, fallbackY: 50);
         var aboveColor = ResolveYCrCbLimitColor(metadata?.PaletteAboveColorYCrCb, fallbackY: 170);
+        var underflowColor = ResolveYCrCbLimitColor(metadata?.PaletteUnderflowColorYCrCb, fallbackY: 41);
+        var overflowColor = ResolveYCrCbLimitColor(metadata?.PaletteOverflowColorYCrCb, fallbackY: 67);
 
         // 1. Calcular histograma de Sinal (Plateau Equalization / DDE algorithm)
         int numBins = 16384; // Resolução de 14 bits típica das matrizes térmicas
@@ -274,19 +276,36 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
 
        // 3. Mapear os valores pelo CDF Equalizado (Distribuição Não-Linear igual FLIR)
         i = 0;
+        // Limites de clipping do sensor da câmera (defaults FLIR)
+        double sensorMinC = -40.0;
+        double sensorMaxC = 280.0;
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                double val = vals[i++];
+                double val = vals[i];
+                double t = temperatures[y, x];
+                i++;
                 int dest = (y * width + x) * 4;
 
+                // Prioridade 1: Underflow/Overflow do sensor (fora do range do hardware)
+                if (useLimitColors && t < sensorMinC)
+                {
+                    WriteLimitColor(underflowColor, pixels, dest);
+                    continue;
+                }
+                if (useLimitColors && t > sensorMaxC)
+                {
+                    WriteLimitColor(overflowColor, pixels, dest);
+                    continue;
+                }
+
+                // Prioridade 2: Below/Above da escala visual (fora do range visual selecionado)
                 if (useLimitColors && val < minVal)
                 {
                     WriteLimitColor(belowColor, pixels, dest);
                     continue;
                 }
-
                 if (useLimitColors && val > maxVal)
                 {
                     WriteLimitColor(aboveColor, pixels, dest);

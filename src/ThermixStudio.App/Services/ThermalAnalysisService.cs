@@ -1907,15 +1907,20 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
         var f = metadata.PlanckF!.Value;
         var o = metadata.PlanckO!.Value;
 
-        var emissivity = Math.Clamp(metadata.Emissivity ?? 0.95, 0.01, 1.0);
+        var emissivity = Math.Clamp(metadata.Emissivity ?? 1.0, 0.01, 1.0);
         destination.Metadata.Emissivity = emissivity;
+        
+        var trefl = metadata.ReflectedTemperatureC ?? 20.0;
+        var treflK = trefl + 273.15;
+        var rawRefl = r1 / (r2 * (Math.Exp(b / treflK) - f)) - o;
 
         for (var y = 0; y < source.Height; y++)
         {
             for (var x = 0; x < source.Width; x++)
             {
                 var raw = source.At<ushort>(y, x);
-                var correctedRaw = Math.Max(1.0, raw / emissivity);
+                var rawObj = (raw - (1.0 - emissivity) * rawRefl) / emissivity;
+                var correctedRaw = Math.Max(1.0, rawObj);
                 var denominator = r2 * (correctedRaw + o);
                 var lnInput = (r1 / Math.Max(denominator, 0.000001)) + f;
                 var tempK = b / Math.Log(Math.Max(lnInput, 1.000001));
@@ -1956,7 +1961,11 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
         var b = metadata.PlanckB!.Value;
         var f = metadata.PlanckF!.Value;
         var o = metadata.PlanckO!.Value;
-        var emissivity = Math.Clamp(metadata.Emissivity ?? 0.95, 0.01, 1.0);
+        var emissivity = Math.Clamp(metadata.Emissivity ?? 1.0, 0.01, 1.0);
+        
+        var trefl = metadata.ReflectedTemperatureC ?? 20.0;
+        var treflK = trefl + 273.15;
+        var rawRefl = r1 / (r2 * (Math.Exp(b / treflK) - f)) - o;
 
         double minTemp = double.MaxValue;
         double maxTemp = double.MinValue;
@@ -1973,7 +1982,8 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
                     try
                     {
                         var raw = source.At<ushort>(y, x);
-                        var correctedRaw = Math.Max(1.0, raw / emissivity);
+                        var rawObj = (raw - (1.0 - emissivity) * rawRefl) / emissivity;
+                        var correctedRaw = Math.Max(1.0, rawObj);
                         var denominator = r2 * (correctedRaw + o);
                         var lnInput = (r1 / Math.Max(denominator, 0.000001)) + f;
 

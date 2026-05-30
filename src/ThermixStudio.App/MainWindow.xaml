@@ -495,65 +495,50 @@
                                     ToolTip="Usar a escala visual gravada pela camera"/>
                         </StackPanel>
 
-                        <TextBox Grid.Column="1"
-                                 Style="{StaticResource PropInputStyle}"
-                                 Text="{Binding LevelMinC, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat=F1}"
-                                 IsEnabled="{Binding AutoScaleEnabled, Converter={StaticResource InverseBooleanConverter}}"
-                                 HorizontalContentAlignment="Right"
-                                 ToolTip="Temperatura minima da escala de cores"/>
-
-                        <Grid Grid.Column="2"
-                              Margin="10,0"
-                              VerticalAlignment="Center"
-                              IsEnabled="{Binding AutoScaleEnabled, Converter={StaticResource InverseBooleanConverter}}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="20"/>
-                                <RowDefinition Height="20"/>
-                            </Grid.RowDefinitions>
+                        <Grid Grid.Column="1" ToolTip="Temperatura minima da escala visual" Height="28">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="82"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="20"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Row="0"
-                                       Grid.Column="0"
-                                       Text="Min visual"
-                                       Foreground="#8888AA"
-                                       FontSize="10"
-                                       VerticalAlignment="Center"/>
-                            <Slider Grid.Row="0"
-                                    Grid.Column="1"
-                                    Minimum="{Binding ThermalScaleFloorC}"
-                                    Maximum="{Binding ThermalScaleCeilingC}"
-                                    Value="{Binding LevelMinC, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                    TickFrequency="1"
-                                    IsSnapToTickEnabled="False"
-                                    Foreground="#4488FF"
-                                    Background="#2A2A42"
-                                    ToolTip="Arraste para ajustar o minimo"/>
-                            <TextBlock Grid.Row="1"
-                                       Grid.Column="0"
-                                       Text="Max visual"
-                                       Foreground="#8888AA"
-                                       FontSize="10"
-                                       VerticalAlignment="Center"/>
-                            <Slider Grid.Row="1"
-                                    Grid.Column="1"
-                                    Minimum="{Binding ThermalScaleFloorC}"
-                                    Maximum="{Binding ThermalScaleCeilingC}"
-                                    Value="{Binding LevelMaxC, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                    TickFrequency="1"
-                                    IsSnapToTickEnabled="False"
-                                    Foreground="#FF6600"
-                                    Background="#2A2A42"
-                                    ToolTip="Arraste para ajustar o maximo"/>
+                            <TextBox Grid.Column="0"
+                                     Style="{StaticResource PropInputStyle}"
+                                     Text="{Binding LevelMinC, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat=F1}"
+                                     HorizontalContentAlignment="Right"/>
+                            <Grid Grid.Column="1" Margin="1,0,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <RepeatButton Grid.Row="0" Content="▲" Command="{Binding IncrementLevelMinCommand}" FontSize="6" Padding="0" Background="#2A2A3E" Foreground="#C8C8D8" BorderThickness="0" Margin="0,2,0,1" Delay="300" Interval="50"/>
+                                <RepeatButton Grid.Row="1" Content="▼" Command="{Binding DecrementLevelMinCommand}" FontSize="6" Padding="0" Background="#2A2A3E" Foreground="#C8C8D8" BorderThickness="0" Margin="0,1,0,2" Delay="300" Interval="50"/>
+                            </Grid>
                         </Grid>
 
-                        <TextBox Grid.Column="3"
-                                 Style="{StaticResource PropInputStyle}"
-                                 Text="{Binding LevelMaxC, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat=F1}"
-                                 IsEnabled="{Binding AutoScaleEnabled, Converter={StaticResource InverseBooleanConverter}}"
-                                 HorizontalContentAlignment="Right"
-                                 ToolTip="Temperatura maxima da escala de cores"/>
+                        <TextBlock Grid.Column="2" 
+                                   Text="Ajuste de Limites" 
+                                   Foreground="#505060" 
+                                   FontSize="11" 
+                                   HorizontalAlignment="Center" 
+                                   VerticalAlignment="Center"/>
+
+                        <Grid Grid.Column="3" ToolTip="Temperatura maxima da escala visual" Height="28">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="20"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0"
+                                     Style="{StaticResource PropInputStyle}"
+                                     Text="{Binding LevelMaxC, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat=F1}"
+                                     HorizontalContentAlignment="Right"/>
+                            <Grid Grid.Column="1" Margin="1,0,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <RepeatButton Grid.Row="0" Content="▲" Command="{Binding IncrementLevelMaxCommand}" FontSize="6" Padding="0" Background="#2A2A3E" Foreground="#C8C8D8" BorderThickness="0" Margin="0,2,0,1" Delay="300" Interval="50"/>
+                                <RepeatButton Grid.Row="1" Content="▼" Command="{Binding DecrementLevelMaxCommand}" FontSize="6" Padding="0" Background="#2A2A3E" Foreground="#C8C8D8" BorderThickness="0" Margin="0,1,0,2" Delay="300" Interval="50"/>
+                            </Grid>
+                        </Grid>
 
                         <TextBlock Grid.Column="4"
                                    Foreground="#8888AA"

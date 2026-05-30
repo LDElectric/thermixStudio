@@ -157,3 +157,18 @@ mesmo comportamento de temperaturas acima da faixa
 mesma percepção de contraste
 
 Mantendo toda a radiometria original intacta.
+
+## Atualizações de Implementação (Ajustes Finais)
+
+Durante a fase final de testes, os seguintes ajustes foram realizados para garantir 100% de paridade com as imagens geradas pela câmera FLIR:
+
+1. **Separação de Underflow/Overflow e Below/Above**:
+   As cores de limite (Limit Colors) da paleta foram corrigidas no `ThermalPaletteEngine.cs`.
+   - **Below/Above Colors**: Aplicadas a temperaturas que estão fora da *escala visual* selecionada no momento.
+   - **Underflow/Overflow Colors**: Aplicadas a temperaturas que estão fora da *faixa de medição do hardware* da câmera (ex: menor que -40°C ou maior que 280°C para a FLIR0192). Estas têm prioridade sobre a escala visual.
+
+2. **Consistência Tipográfica (UI/UX)**:
+   Modificamos a lógica de sobreposição de elementos no pipeline (no método `OverlayCameraUI` no `MainViewModel.Rendering.cs`) para **nunca** copiar os rótulos de texto originais de temperatura das caixas de extremos (`preferOriginalTemperatureText = false`). Isso garante que a fonte das temperaturas seja programaticamente renderizada e mantenha um visual consistente, independentemente de o AutoScale estar ativado ou não.
+
+3. **Substituição de Sliders por Caixas de Texto com Setas**:
+   A interface de ajuste de limites de temperatura visual foi aprimorada no `MainWindow.xaml` e no `MainViewModel`. Os sliders foram removidos para abrir espaço a `TextBox`es com botões de incremento e decremento (0.1 °C). Isso permite tanto a digitação manual de temperaturas precisas quanto pequenos ajustes gradativos na escala, desativando o AutoScale automaticamente à primeira intervenção do usuário, assim como no software FLIR Tools/Thermal Studio.
