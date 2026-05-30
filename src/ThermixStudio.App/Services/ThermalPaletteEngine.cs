@@ -326,8 +326,8 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                 //   Zona quente (> knee): hiOut -> expande, abrindo os laranjas e amarelos suavemente
                 double knee     = 0.75;
                 double softness = 0.12;
-                double t        = Math.Clamp((normalized - (knee - softness)) / (2.0 * softness), 0.0, 1.0);
-                double tSmooth  = t * t * (3.0 - 2.0 * t);
+                double curveT   = Math.Clamp((normalized - (knee - softness)) / (2.0 * softness), 0.0, 1.0);
+                double tSmooth  = curveT * curveT * (3.0 - 2.0 * curveT);
 
                 double gammaOut = Math.Pow(Math.Max(normalized / knee, 1e-6), 1.25) * knee;
                 double xHi      = Math.Clamp((normalized - knee) / (1.0 - knee), 0.0, 1.0);
@@ -673,3 +673,4 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
 
     #endregion
 }
+

@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ThermixStudio.Core;
+using CommunityToolkit.Mvvm.Input;
 
 namespace ThermixStudio.App.ViewModels;
 
