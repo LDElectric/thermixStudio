@@ -29,6 +29,18 @@ O Thermix Studio é uma aplicação desktop para análise de imagens termográfi
 - WebView2 (preview HTML interativo)
 - CommunityToolkit.Mvvm (MVVM)
 
+## Motores de renderização (C#)
+
+| Motor | Origem legada | Responsabilidade |
+|-------|---------------|------------------|
+| `ThermalRenderEngine` | Thermix / FLIR EXIF | LUT embarcada da câmera, render radiométrico Original |
+| `ThermalPaletteEngine` | ThermalCS | LUTs JSON, `ProcessSmartHD`, detecção e troca de paleta |
+| `ThermalModeEngine` | modos_CS | MSX, PiP, Combinação térmica, térmica/visível pura |
+| `ThermalViewPipeline` | — | Orquestra os três motores (detecção + modulação na UI) |
+| `ExifToolService` | — | Metadados FLIR via `exiftool.exe` (binário, não Python) |
+
+Extração da foto visível FLIR: C# nativo (`ThermalAnalysisService`) — o script `extrair_imagens_flir.py` na raiz é legado e **não é chamado** pelo app.
+
 ## Estrutura do Projeto
 
 ```

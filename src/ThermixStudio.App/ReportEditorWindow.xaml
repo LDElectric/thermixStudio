@@ -124,21 +124,35 @@
                             <TextBlock Text="Equipamento"/>
                             <TextBox Text="{Binding EquipmentName, UpdateSourceTrigger=PropertyChanged}"/>
 
-                            <TextBlock Text="Data" Margin="0,4,0,6"/>
-                            <DatePicker SelectedDate="{Binding ReportDate, UpdateSourceTrigger=PropertyChanged}"
-                                        Margin="0,0,0,8"
-                                        Background="#232336"
-                                        Foreground="#E6E6EF"
-                                        BorderBrush="#3A3A52">
-                                <DatePicker.Resources>
-                                    <Style TargetType="TextBox">
-                                        <Setter Property="Background" Value="#232336"/>
-                                        <Setter Property="Foreground" Value="#E6E6EF"/>
-                                        <Setter Property="BorderThickness" Value="0"/>
-                                        <Setter Property="Padding" Value="6,2"/>
-                                    </Style>
-                                </DatePicker.Resources>
-                            </DatePicker>
+                            <TextBlock Text="Termografista / Relatado por"/>
+                            <TextBox Text="{Binding TechnicianName, UpdateSourceTrigger=PropertyChanged}"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Nº Certificação" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding CertificationNumber, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Data" Margin="0,0,0,4"/>
+                                    <DatePicker SelectedDate="{Binding ReportDate, UpdateSourceTrigger=PropertyChanged}"
+                                                Background="#FFFFFF" Foreground="#1F2430" BorderBrush="#C0C7D9">
+                                        <DatePicker.Resources>
+                                            <Style TargetType="TextBox">
+                                                <Setter Property="Background" Value="#FFFFFF"/>
+                                                <Setter Property="Foreground" Value="#1F2430"/>
+                                                <Setter Property="BorderThickness" Value="1"/>
+                                                <Setter Property="BorderBrush" Value="#C0C7D9"/>
+                                                <Setter Property="Padding" Value="6,4"/>
+                                            </Style>
+                                        </DatePicker.Resources>
+                                    </DatePicker>
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </Border>
 
@@ -198,28 +212,36 @@
 
                     <Border Style="{StaticResource CardStyle}">
                         <StackPanel>
-                            <TextBlock Text="Seção selecionada" Style="{StaticResource PanelTitleStyle}"/>
-                            <TextBlock Text="Observações"/>
-                            <TextBox Text="{Binding SelectedSection.Observations, UpdateSourceTrigger=PropertyChanged}"
-                                     AcceptsReturn="True"
-                                     Height="92"
-                                     TextWrapping="Wrap"/>
+                            <TextBlock Text="Observações e recomendações por termograma" Style="{StaticResource PanelTitleStyle}"/>
 
-                            <TextBlock Text="Ação Recomendada" Margin="0,2,0,0"/>
-                            <TextBox Text="{Binding SelectedSection.Recommendation, UpdateSourceTrigger=PropertyChanged}"
-                                     AcceptsReturn="True"
-                                     Height="92"
-                                     TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Border>
+                            <ItemsControl ItemsSource="{Binding Sections}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Expander IsExpanded="True"
+                                                  Margin="0,0,0,8"
+                                                  Background="#171724"
+                                                  BorderBrush="#2A2A42"
+                                                  BorderThickness="1"
+                                                  Foreground="#E6E6EF"
+                                                  Padding="8">
+                                            <Expander.Header>
+                                                <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="#FF8844"
+                                                           Text="{Binding Title, StringFormat=OBSERVAÇÕES E RECOMENDAÇÕES {0}}"/>
+                                            </Expander.Header>
 
-                    <Border Style="{StaticResource CardStyle}">
-                        <StackPanel>
-                            <TextBlock Text="Observações gerais" Style="{StaticResource PanelTitleStyle}"/>
-                            <TextBox Text="{Binding TechnicalOpinion, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" Height="92" TextWrapping="Wrap"/>
+                                            <StackPanel Margin="0,8,0,0">
+                                                <TextBlock Text="Observações:" Foreground="#8888AA" FontSize="11" Margin="0,0,0,4"/>
+                                                <TextBox Text="{Binding Observations, UpdateSourceTrigger=PropertyChanged}"
+                                                         AcceptsReturn="True" Height="70" TextWrapping="Wrap"/>
 
-                            <TextBlock Text="Ação recomendada geral" Margin="0,2,0,0"/>
-                            <TextBox Text="{Binding RecommendedAction, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" Height="92" TextWrapping="Wrap"/>
+                                                <TextBlock Text="Ação Recomendada:" Foreground="#8888AA" FontSize="11" Margin="0,4,0,4"/>
+                                                <TextBox Text="{Binding Recommendation, UpdateSourceTrigger=PropertyChanged}"
+                                                         AcceptsReturn="True" Height="70" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Expander>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </Border>
 
@@ -228,7 +250,7 @@
                             Click="DownloadPdfButton_Click"
                             MinWidth="132"/>
                         <Button Content="Gerar Relatório"
-                                Command="{Binding GenerateReportCommand}"
+                                Click="GenerateReportButton_Click"
                                 Style="{StaticResource AccentButtonStyle}"
                                 MinWidth="132"/>
                         <Button Content="Cancelar"
@@ -249,8 +271,7 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Margin="6,4,6,12">
-                    <TextBlock Text="Pré-visualização" FontSize="22" FontWeight="SemiBold" Foreground="#1F2430"/>
-                    <TextBlock Text="Renderização em alta fidelidade para validação visual antes da emissão final." Foreground="#5A6376" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    <TextBlock Text="Pré-visualização do relatório" FontSize="22" FontWeight="SemiBold" Foreground="#1F2430"/>
                 </StackPanel>
 
                 <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#D8DEEA" BorderThickness="1" CornerRadius="12" Padding="10">

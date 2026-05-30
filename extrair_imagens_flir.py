@@ -1,9 +1,14 @@
 """
-Extrai e aprimora a imagem em luz visível (foto digital) de um arquivo FLIR (.jpg).
+[LEGADO / NÃO USADO PELO THERMIX STUDIO]
 
-A câmera visível do FLIR E8 frequentemente produz imagens subexpostas (muito escuras).
-Este script extrai o JPEG embutido diretamente do FFF e aplica correção de exposição
-automática para produzir uma imagem legível e com cores naturais.
+O aplicativo WPF usa apenas C#:
+  ThermalAnalysisService.TryExtractEmbeddedVisibleFromFlirApp1 + EnhanceVisibleJpeg (OpenCvSharp)
+  e IExifToolService.TryExtractVisibleImageAsync — ver src/ThermixStudio.App/Services/
+
+Este script permanece como referência histórica; não é invocado em runtime.
+
+---
+Extrai e aprimora a imagem em luz visível (foto digital) de um arquivo FLIR (.jpg).
 
 Requisitos: pip install flyr pillow numpy opencv-python
 """

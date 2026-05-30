@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Ficha de Ensaio e Relatório Técnico</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #e9eef3;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Mudado para permitir rolagem vertical adequada */
+            padding: 20px 16px;
+            font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+        }
+
+        .report-container {
+            max-width: 1280px;
+            width: 100%;
+            background: white;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+            margin: 0 auto;
+            padding: 16px 20px 24px 20px;
+            border-radius: 2px;
+        }
+
+        /* --- ESTILOS ORIGINAIS DA FICHA --- */
+        h1 { font-size: 1.6rem; text-align: center; font-weight: 600; letter-spacing: -0.3px; margin: 4px 0 12px; color: #1e3a5f; border-bottom: 2px solid #2c5282; display: inline-block; width: auto; padding-bottom: 4px; }
+        .header-title { text-align: center; margin-bottom: 12px; }
+        .sub { font-size: 0.7rem; color: #2d3748; text-align: center; margin-top: -6px; margin-bottom: 16px; font-weight: 500; }
+        .test-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 10.3px; font-family: 'Consolas', 'Segoe UI', monospace; }
+        .test-table caption { text-align: left; font-weight: 700; background: #eef2f7; padding: 5px 8px; font-size: 10.8px; border: 1px solid #cbd5e0; border-bottom: none; caption-side: top; }
+        .test-table th, .test-table td { border: 1px solid #94a3b8; padding: 5px 6px; vertical-align: middle; }
+        .test-table th { background-color: #e2e8f0; font-weight: 700; text-align: center; font-size: 9.8px; }
+        .test-table td { background-color: #ffffff; text-align: center; }
+        .label-left { text-align: left; font-weight: 600; background-color: #f8fafc; }
+        .section-title { font-size: 12.5px; font-weight: 800; background: #e2e8f0; padding: 5px 10px; margin: 14px 0 7px 0; border-left: 5px solid #1e4a6b; color: #0f2c3f; }
+        .inline-dados { font-size: 10px; background: #f1f5f9; padding: 6px 12px; border-radius: 6px; margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 24px; border: 1px solid #cbd5e1; }
+        .label-destaque { font-weight: 700; color: #1e3a5f; }
+        .two-columns { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; }
+        .col { flex: 1; min-width: 240px; }
+        .info-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; margin-bottom: 14px; font-size: 10.3px; }
+        .info-card strong { color: #1e3a5f; font-weight: 700; display: block; margin-bottom: 4px; font-size: 10.5px; }
+        .inline-values-line, .varistor-line { display: block; white-space: normal; word-break: keep-all; }
+        .diode-grid { width: 100%; border-collapse: collapse; font-size: 10px; }
+        .diode-grid th, .diode-grid td { border: 1px solid #cbd5e1; padding: 5px 4px; text-align: center; }
+        .sign-field { background-color: #fefefe; min-width: 140px; text-align: center; vertical-align: middle; padding: 8px 4px; color: #4a5568; }
+        .brushes-container { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 10.3px; }
+        .brushes-title { font-weight: 700; color: #1e3a5f; margin-bottom: 6px; }
+        .brushes-values { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: 60px; padding-left: 8px; }
+
+        /* --- NOVOS ESTILOS (RELATÓRIO DINÂMICO) --- */
+        .page-break {
+            page-break-before: always;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px dashed #cbd5e1;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        /* Botão minimalista de anexo */
+        .btn-attach {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #1e3a5f;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn-attach:hover { background: #e2e8f0; }
+        input[type="file"] { display: none; }
+
+        /* Observações auto-ajustáveis */
+        .obs-box {
+            width: 100%;
+            min-height: 100px;
+            border: 1px solid #cbd5e1;
+            padding: 10px;
+            font-size: 12px;
+            background: #fff;
+            outline: none;
+            line-height: 1.5;
+            border-radius: 4px;
+        }
+        .obs-box:empty:before {
+            content: "Clique aqui para digitar suas observações...";
+            color: #94a3b8;
+        }
+
+        /* Layout de Gráficos */
+        .graph-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .graph-frame {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        /* Layout de Fotos (Grid 2 colunas para 6 fotos por página) */
+        .photo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .photo-frame {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            padding: 10px;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            page-break-inside: avoid;
+        }
+        .image-viewport {
+            width: 100%;
+            aspect-ratio: 4 / 3; /* Proporção padrão de foto */
+            overflow: hidden; /* Garante que a foto não fuja da margem */
+            background: #eef2f7;
+            position: relative;
+            cursor: grab;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .image-viewport:active { cursor: grabbing; }
+        .image-viewport img {
+            position: absolute;
+            max-width: none;
+            transform-origin: center;
+        }
+        .photo-caption {
+            width: 100%;
+            border: none;
+            border-top: 1px dotted #cbd5e1;
+            padding-top: 8px;
+            font-size: 11px;
+            outline: none;
+            text-align: center;
+            color: #4a5568;
+        }
+        .photo-caption:empty:before { content: "Inserir legenda..."; color: #a0aec0; }
+        
+        /* Dica de usabilidade */
+        .ui-hint { font-size: 10px; color: #64748b; font-weight: normal; margin-left: 10px; }
+
+        /* Estilos de Impressão */
+        @media print {
+            body { background: white; padding: 0; margin: 0; }
+            .report-container { max-width: 100%; box-shadow: none; padding: 0.15in; border-radius: 0; }
+            .page-break { border-top: none; margin-top: 0; padding-top: 0; }
+            .btn-attach, .ui-hint { display: none !important; }
+            .obs-box:empty { display: none; }
+            .photo-frame { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+<div class="report-container">
+    
+    <div class="header-title">
+        <h1>FICHA DE ENSAIOS ELÉTRICOS</h1>
+        <div class="sub">Ensaios de Isolamento, Resistência Ôhmica e Componentes</div>
+    </div>
+
+    <div class="inline-dados">
+        <div><span class="label-destaque">Data:</span> </div>
+        <div><span class="label-destaque">Temperatura Ambiente:</span>  °C</div>
+        <div><span class="label-destaque">Temperatura Estator:</span>  °C</div>
+        <div><span class="label-destaque">Estator Principal:</span> </div>
+    </div>
+
+    <div class="section-title">ESTATOR PRINCIPAL – Isolamento (GΩ) e Resistência Ôhmica</div>
+    <table class="test-table">
+        <caption>Isolamento Dielétrico – Estator Principal</caption>
+        <thead>
+            <tr><th>Ponto de Medida</th><th>Tensão (kV)</th><th>30 s (GΩ)</th><th>1 min (GΩ)</th><th>10 min (GΩ)</th><th>IA</th><th>IP</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="label-left">U - M</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td class="label-left">V - M</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td class="label-left">W - M</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td class="label-left">U/V/W - M</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        </tbody>
+    </table>
+
+    <table class="test-table">
+        <caption>Resistência Ôhmica (mΩ) – escala 100mA / 2000mΩ</caption>
+        <thead><tr><th>Terminais</th><th>Valor medido (mΩ)</th></tr></thead>
+        <tbody>
+            <tr><td class="label-left">U1 - U2</td><td></td></tr>
+            <tr><td class="label-left">V1 - V2</td><td></td></tr>
+            <tr><td class="label-left">W1 - W2</td><td></td></tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">ROTOR PRINCIPAL</div>
+    <table class="test-table">
+        <caption>Isolamento Rotor Principal</caption>
+        <thead><tr><th>Circuito</th><th>Tensão</th><th>30 s (GΩ)</th><th>1 min (GΩ)</th><th>10 min (GΩ)</th><th>IA</th><th>IP</th></tr></thead>
+        <tbody>
+            <tr><td class="label-left">Rotor - M</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        </tbody>
+    </table>
+    <table class="test-table">
+        <caption>Resistência Ôhmica (Ω)</caption>
+        <thead><tr><th>Circuito / Enrolamento</th><th>Valor (Ω)</th></tr></thead>
+        <tbody>
+            <tr><td class="label-left">F+ / F- (Circuito 1)</td><td></td></tr>
+            <tr><td class="label-left">F+ / F- (Circuito 2)</td><td></td></tr>
+            <tr><td class="label-left">Total (série)</td><td></td></tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">ROTOR DA EXCITATRIZ</div>
+    <table class="test-table">
+        <caption>Isolamento Rotor Excitatriz</caption>
+        <thead><tr><th>Ponto de Medida</th><th>Tensão (kV)</th><th>1 minuto (GΩ)</th></tr></thead>
+        <tbody>
+            <tr><td class="label-left">U1/V1/W1 - M</td><td></td><td></td></tr>
+            <tr><td class="label-left">U2/V2/W2 - M</td><td></td><td></td></tr>
+        </tbody>
+    </table>
+    <table class="test-table">
+        <caption>Resistência Ôhmica (mΩ)</caption>
+        <thead><tr><th>Terminais</th><th>Valor (mΩ)</th><th>Terminais</th><th>Valor (mΩ)</th></tr></thead>
+        <tbody>
+            <tr><td>U1 - W1</td><td></td><td>U1 - W2</td><td></td></tr>
+            <tr><td>U1 - V1</td><td></td><td>U2 - V2</td><td></td></tr>
+            <tr><td>V1 - W1</td><td></td><td>V2 - W2</td><td></td></tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">ESTATOR DA EXCITATRIZ</div>
+    <table class="test-table">
+        <caption>Isolamento Estator Excitatriz</caption>
+        <thead><tr><th>Ponto de Medida</th><th>Tensão (kV)</th><th>1 minuto (GΩ)</th></tr></thead>
+        <tbody>
+            <tr><td class="label-left">J1/K1 - M</td><td></td><td></td></tr>
+        </tbody>
+    </table>
+    <table class="test-table">
+        <caption>Resistência Ôhmica (Ω)</caption>
+        <thead><tr><th>Bobina / Terminais</th><th>Valor (Ω)</th></tr></thead>
+        <tbody>
+            <tr><td class="label-left">J1 - K1</td><td></td></tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">DIODOS RETIFICADORES – Queda de tensão direta e medição reversa</div>
+    <div class="two-columns">
+        <div class="col">
+            <table class="diode-grid">
+                <caption style="text-align:left; font-weight:bold; margin-bottom:3px;">Diodos 1 a 6</caption>
+                <thead><tr><th>Diodo</th><th>Polarizado (V)</th><th>Reverso (V / ∞)</th></tr></thead>
+                <tbody>
+                    <tr><td>D1</td><td></td><td></td></tr>
+                    <tr><td>D2</td><td></td><td></td></tr>
+                    <tr><td>D3</td><td></td><td></td></tr>
+                    <tr><td>D4</td><td></td><td></td></tr>
+                    <tr><td>D5</td><td></td><td></td></tr>
+                    <tr><td>D6</td><td></td><td></td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="col">
+            <table class="diode-grid">
+                <caption style="text-align:left; font-weight:bold; margin-bottom:3px;">Diodos 7 a 12</caption>
+                <thead><tr><th>Diodo</th><th>Polarizado (V)</th><th>Reverso (V / ∞)</th></tr></thead>
+                <tbody>
+                    <tr><td>D7</td><td></td><td></td></tr>
+                    <tr><td>D8</td><td></td><td></td></tr>
+                    <tr><td>D9</td><td></td><td></td></tr>
+                    <tr><td>D10</td><td></td><td></td></tr>
+                    <tr><td>D11</td><td></td><td></td></tr>
+                    <tr><td>D12</td><td></td><td></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="two-columns">
+        <div class="col">
+            <div class="info-card">
+                <strong>Resistência de aquecimento</strong>
+                <div class="inline-values-line">R1 =   Ω &nbsp;&nbsp; R2 =   Ω &nbsp;&nbsp; R3 =   Ω</div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="info-card">
+                <strong>Varistores de proteção</strong>
+                <div class="varistor-line">Varistor 1:   Ω &nbsp;&nbsp; Varistor 2:   Ω</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brushes-container">
+        <div class="brushes-title">Escovas de aterramento – altura útil:</div>
+        <div class="brushes-values">
+            <span>Lado A:  mm</span>
+            <span>Lado B:  mm</span>
+        </div>
+    </div>
+
+    <div class="section-title">EXECUTANTES</div>
+    <table class="test-table" style="margin-bottom: 0;">
+        <tbody>
+            <tr>
+                <td class="label-left" style="width:30%">Técnico responsável 1</td>
+                <td class="sign-field" style="width:35%"></td>
+                <td class="label-left" style="width:30%">Técnico responsável 2</td>
+                <td class="sign-field" style="width:35%"></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="page-break"></div>
+    
+    <div class="section-header">
+        <div class="section-title" style="margin: 0; width: 100%;">OBSERVAÇÕES GERAIS</div>
+    </div>
+    <div class="obs-box" contenteditable="true"></div>
+
+    <div class="section-header" style="margin-top: 25px;">
+        <div class="section-title" style="margin: 0;">GRÁFICOS DE ENSAIO</div>
+        <label for="graph-upload" class="btn-attach">
+            📎 Adicionar Gráfico
+        </label>
+        <input type="file" id="graph-upload" accept="image/*" multiple>
+    </div>
+    
+    <div class="graph-grid" id="graph-container"></div>
+
+
+    <div class="page-break"></div>
+
+    <div class="section-header">
+        <div class="section-title" style="margin: 0;">
+            REGISTRO FOTOGRÁFICO 
+            <span class="ui-hint">(Máx 12. Use o scroll do mouse na foto para zoom e arraste para ajustar)</span>
+        </div>
+        <label for="photo-upload" class="btn-attach">
+            📎 Adicionar Foto
+        </label>
+        <input type="file" id="photo-upload" accept="image/*" multiple>
+    </div>
+
+    <div class="photo-grid" id="photo-container"></div>
+
+</div>
+
+<script>
+    // Contador global de fotos para limitar a 12
+    let photoCount = 0;
+    const MAX_PHOTOS = 12;
+
+    // Função genérica para criar molduras com manipulação de imagem (Zoom e Arrastar)
+    function createImageFrame(imgSrc, isGraph) {
+        const frame = document.createElement('div');
+        frame.className = isGraph ? 'graph-frame' : 'photo-frame';
+
+        const viewport = document.createElement('div');
+        viewport.className = 'image-viewport';
+        
+        // Ajuste de proporção para gráficos (podem ser mais largos)
+        if (isGraph) {
+            viewport.style.aspectRatio = 'auto';
+            viewport.style.minHeight = '300px';
+        }
+
+        const img = document.createElement('img');
+        img.src = imgSrc;
+        
+        // Estado da imagem para Pan e Zoom
+        let scale = 1;
+        let translateX = 0;
+        let translateY = 0;
+        let isDragging = false;
+        let startX, startY;
+
+        // Quando a imagem carrega, ajusta para cobrir o viewport inicialmente
+        img.onload = () => {
+            const vpRatio = viewport.clientWidth / viewport.clientHeight;
+            const imgRatio = img.naturalWidth / img.naturalHeight;
+            
+            if (imgRatio > vpRatio) {
+                img.style.height = '100%';
+                img.style.width = 'auto';
+            } else {
+                img.style.width = '100%';
+                img.style.height = 'auto';
+            }
+            updateTransform();
+        };
+
+        function updateTransform() {
+            img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        }
+
+        // Lógica de Zoom (Scroll do mouse)
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSensitivity = 0.1;
+            if (e.deltaY < 0) {
+                scale += zoomSensitivity; // Zoom In
+            } else {
+                scale = Math.max(0.5, scale - zoomSensitivity); // Zoom Out (limite mínimo)
+            }
+            updateTransform();
+        });
+
+        // Lógica de Pan (Arrastar com o mouse)
+        viewport.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            translateX = e.clientX - startX;
+            translateY = e.clientY - startY;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Prevenção de comportamento padrão de arrastar a tag <img> do navegador
+        img.addEventListener('dragstart', (e) => e.preventDefault());
+
+        viewport.appendChild(img);
+        frame.appendChild(viewport);
+
+        // Legenda editável
+        const caption = document.createElement('div');
+        caption.className = 'photo-caption';
+        caption.contentEditable = "true";
+        frame.appendChild(caption);
+
+        return frame;
+    }
+
+    // Handler para Gráficos
+    document.getElementById('graph-upload').addEventListener('change', function(event) {
+        const files = event.target.files;
+        const container = document.getElementById('graph-container');
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const frame = createImageFrame(e.target.result, true);
+                    container.appendChild(frame);
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        // Limpa o input para permitir selecionar o mesmo arquivo novamente se necessário
+        this.value = '';
+    });
+
+    // Handler para Fotos (Limite de 12)
+    document.getElementById('photo-upload').addEventListener('change', function(event) {
+        const files = event.target.files;
+        const container = document.getElementById('photo-container');
+
+        for (let i = 0; i < files.length; i++) {
+            if (photoCount >= MAX_PHOTOS) {
+                alert(`Limite máximo de ${MAX_PHOTOS} fotos atingido.`);
+                break;
+            }
+
+            const file = files[i];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const frame = createImageFrame(e.target.result, false);
+                    container.appendChild(frame);
+                    photoCount++;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        this.value = '';
+    });
+</script>
+</body>
+</html>

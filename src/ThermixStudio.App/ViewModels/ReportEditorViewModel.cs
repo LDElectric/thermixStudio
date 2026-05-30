@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SkiaSharp;
+using ThermixStudio.App.Services;
 using ThermixStudio.Core;
 
 namespace ThermixStudio.App.ViewModels;
@@ -33,6 +36,12 @@ public sealed partial class ReportEditorViewModel : ObservableObject
     private string recommendedAction = string.Empty;
 
     [ObservableProperty]
+    private string technicianName = string.Empty;
+
+    [ObservableProperty]
+    private string certificationNumber = string.Empty;
+
+    [ObservableProperty]
     private string previewHtml = GetEmptyPreviewHtml();
 
     [ObservableProperty]
@@ -50,6 +59,8 @@ public sealed partial class ReportEditorViewModel : ObservableObject
     public IRelayCommand CancelCommand { get; }
 
     public event Action<bool>? CloseRequested;
+    /// <summary>Invocado pela View para gerar PDF a partir do WebView2. Recebe o caminho de saída e retorna true em caso de sucesso.</summary>
+    public event Func<string, Task<bool>>? PdfRenderRequested;
 
     public ReportEditorViewModel(IAppDataService dataService, IReportService reportService)
     {
@@ -66,6 +77,8 @@ public sealed partial class ReportEditorViewModel : ObservableObject
     partial void OnInstallationNameChanged(string value) => SchedulePreviewRefresh();
     partial void OnEquipmentNameChanged(string value) => SchedulePreviewRefresh();
     partial void OnReportDateChanged(DateTime value) => SchedulePreviewRefresh();
+    partial void OnTechnicianNameChanged(string value) => SchedulePreviewRefresh();
+    partial void OnCertificationNumberChanged(string value) => SchedulePreviewRefresh();
     partial void OnTechnicalOpinionChanged(string value) => SchedulePreviewRefresh();
     partial void OnRecommendedActionChanged(string value)
     {
@@ -81,7 +94,7 @@ public sealed partial class ReportEditorViewModel : ObservableObject
     }
     partial void OnSelectedAvailableThermogramChanged(Thermogram? value) => SchedulePreviewRefresh();
 
-    public async Task LoadAsync(Inspection inspection, IEnumerable<Thermogram> availableThermograms, Thermogram? initialThermogram)
+    public async Task LoadAsync(Inspection inspection, IEnumerable<Thermogram> availableThermograms, Thermogram? initialThermogram, string? initialAnnotatedImagePath = null)
     {
         OsNumber = string.IsNullOrWhiteSpace(inspection.OsNumber) ? "-" : inspection.OsNumber;
         InstallationName = inspection.Plant;
@@ -96,7 +109,7 @@ public sealed partial class ReportEditorViewModel : ObservableObject
         Sections.Clear();
         if (initialThermogram is not null)
         {
-            await AddThermogramToReportAsync(initialThermogram);
+            await AddThermogramToReportAsync(initialThermogram, initialAnnotatedImagePath);
         }
 
         SelectedSection = Sections.FirstOrDefault();
@@ -114,7 +127,7 @@ public sealed partial class ReportEditorViewModel : ObservableObject
         await AddThermogramToReportAsync(SelectedAvailableThermogram);
     }
 
-    private async Task AddThermogramToReportAsync(Thermogram thermogram)
+    private async Task AddThermogramToReportAsync(Thermogram thermogram, string? preferredAnnotatedImagePath = null)
     {
         if (Sections.Any(x => x.Thermogram.Id == thermogram.Id))
         {
@@ -122,6 +135,7 @@ public sealed partial class ReportEditorViewModel : ObservableObject
         }
 
         var measurements = await _dataService.GetMeasurementsByThermogramAsync(thermogram.Id);
+        var illustrations = ThermalImageAnnotator.ExtractIllustrationsFromProcessingJson(thermogram.ProcessingJson);
         var index = Sections.Count + 1;
         var sectionItem = new ReportSectionItemViewModel(thermogram)
         {
@@ -132,6 +146,19 @@ public sealed partial class ReportEditorViewModel : ObservableObject
 
         sectionItem.PropertyChanged += SectionItemOnPropertyChanged;
         sectionItem.SetMeasurements(measurements);
+
+        if (!string.IsNullOrWhiteSpace(preferredAnnotatedImagePath) && File.Exists(preferredAnnotatedImagePath))
+        {
+            // Usa o snapshot já renderizado da tela atual (modo/paleta/overlays) quando disponível.
+            sectionItem.AnnotatedImagePath = preferredAnnotatedImagePath;
+        }
+        else
+        {
+            // Fallback: renderiza por arquivo base + overlays persistidos.
+            var annotated = await Task.Run(() => ThermalImageAnnotator.AnnotateWithSpots(thermogram.FilePath, measurements, illustrations));
+            sectionItem.AnnotatedImagePath = annotated;
+        }
+
         Sections.Add(sectionItem);
         SelectedSection = sectionItem;
         SchedulePreviewRefresh();
@@ -168,14 +195,42 @@ public sealed partial class ReportEditorViewModel : ObservableObject
 
     private async Task GenerateReportAsync()
     {
-        var outputDirectory = Path.Combine(AppContext.BaseDirectory, "Reports");
-        var result = await GenerateReportToDirectoryAsync(outputDirectory);
-        if (result is null)
+        if (Sections.Count == 0)
         {
             return;
         }
 
-        CloseRequested?.Invoke(true);
+        try
+        {
+            var reportsDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ThermixStudio", "Relatorios");
+            Directory.CreateDirectory(reportsDir);
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            var osNumber = string.IsNullOrWhiteSpace(OsNumber) ? "SEM-OS" : OsNumber.Trim();
+            var pdfPath = Path.Combine(reportsDir, $"{SanitizePart(osNumber)}_{timestamp}.pdf");
+
+            if (PdfRenderRequested is not null)
+            {
+                var success = await PdfRenderRequested(pdfPath);
+                if (success)
+                {
+                    CloseRequested?.Invoke(true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GenerateReportAsync] {ex.Message}");
+        }
+    }
+
+    private static string SanitizePart(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var result = new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+        return string.IsNullOrWhiteSpace(result) ? "SEM-OS" : result.Trim();
     }
 
     public async Task<ReportResult?> GenerateReportToDirectoryAsync(string outputDirectory, CancellationToken cancellationToken = default)
@@ -196,7 +251,7 @@ public sealed partial class ReportEditorViewModel : ObservableObject
             OsNumber = string.IsNullOrWhiteSpace(OsNumber) ? "-" : OsNumber,
             Plant = InstallationName,
             StartAtUtc = ReportDate,
-            TechnicianName = string.Empty
+            TechnicianName = TechnicianName
         };
 
         var request = new ReportRequest
@@ -205,13 +260,16 @@ public sealed partial class ReportEditorViewModel : ObservableObject
             InstallationName = InstallationName,
             EquipmentName = EquipmentName,
             ReportDate = ReportDate,
+            TechnicianName = TechnicianName,
+            CertificationNumber = CertificationNumber,
             Sections = Sections.Select(section => new ReportSectionRequest
             {
                 Thermogram = section.Thermogram,
                 Measurements = section.Measurements,
                 Title = section.Title,
                 Observations = section.Observations,
-                Recommendation = string.IsNullOrWhiteSpace(section.Recommendation) ? RecommendedAction : section.Recommendation
+                Recommendation = string.IsNullOrWhiteSpace(section.Recommendation) ? RecommendedAction : section.Recommendation,
+                AnnotatedThermalImagePath = section.AnnotatedImagePath
             }).ToList(),
             TechnicalOpinion = TechnicalOpinion,
             RecommendedAction = RecommendedAction
@@ -237,7 +295,7 @@ public sealed partial class ReportEditorViewModel : ObservableObject
     {
         try
         {
-            await Task.Delay(120, cancellationToken);
+            await Task.Delay(400, cancellationToken);
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -261,13 +319,17 @@ public sealed partial class ReportEditorViewModel : ObservableObject
         }
 
         var measurements = await _dataService.GetMeasurementsByThermogramAsync(SelectedAvailableThermogram.Id, cancellationToken);
+        var illustrations = ThermalImageAnnotator.ExtractIllustrationsFromProcessingJson(SelectedAvailableThermogram.ProcessingJson);
+        var annotated = await Task.Run(() =>
+            ThermalImageAnnotator.AnnotateWithSpots(SelectedAvailableThermogram.FilePath, measurements, illustrations), cancellationToken);
         var transientSection = new ReportSectionRequest
         {
             Thermogram = SelectedAvailableThermogram,
             Measurements = measurements,
             Title = "Termograma selecionado",
             Observations = SelectedAvailableThermogram.Notes,
-            Recommendation = RecommendedAction
+            Recommendation = RecommendedAction,
+            AnnotatedThermalImagePath = annotated
         };
 
         return new ReportRequest
@@ -297,6 +359,9 @@ public sealed partial class ReportEditorViewModel : ObservableObject
 
         [ObservableProperty]
         private IReadOnlyList<ThermalMeasurement> measurements = [];
+
+        /// <summary>Caminho da imagem IR com spots sobrepostos (gerado ao adicionar ao relatório).</summary>
+        public string? AnnotatedImagePath { get; set; }
 
         public string ThermogramLabel => $"{Path.GetFileName(Thermogram.FilePath)} | {Thermogram.EquipmentTag}";
         public string MeasurementsLabel => $"{Measurements.Count} medição(ões)";

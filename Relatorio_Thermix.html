@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório Termográfico - Thermix Studio</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #eef2f9;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: #1f2430;
+            padding: 12px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        /* Configuração estrita para A4 */
+        @page {
+            size: A4;
+            margin: 12mm 15mm;
+        }
+
+        .document {
+            max-width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 12mm 10mm;
+            border: 1px solid #d1d9e8;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .main-title {
+            color: #ff6600;
+            font-size: 18pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+        }
+
+        .header-info {
+            text-align: center;
+            font-size: 9pt;
+            margin-bottom: 8px;
+            color: #41506c;
+        }
+
+        .header-separator {
+            border-bottom: 2px solid #ff6600;
+            margin-bottom: 12px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: stretch;
+            background: linear-gradient(90deg, #f7faff 0%, #eef3fb 100%);
+            border: 1px solid #d6deed;
+            margin: 14px 0 8px 0;
+            border-radius: 6px;
+            overflow: hidden;
+            page-break-after: avoid;
+            break-after: avoid;
+        }
+
+        .red-bar {
+            width: 6px;
+            background-color: #ff6600;
+        }
+
+        .section-title {
+            padding: 5px 10px;
+            font-weight: bold;
+            font-size: 9.5pt;
+            text-transform: uppercase;
+            color: #1f2f4d;
+            letter-spacing: 0.3px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+        }
+
+        .report-meta-table {
+            table-layout: fixed;
+            margin-bottom: 10px;
+        }
+
+        .report-meta-table td {
+            vertical-align: top;
+            padding: 5px 6px;
+            font-size: 8.5pt;
+            word-wrap: break-word;
+        }
+
+        td.label {
+            font-weight: 700;
+            background-color: #f5f8fd;
+            color: #2a3a58;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .info-card {
+            border: 1px solid #d0d8ea;
+            border-radius: 6px;
+            background: #ffffff;
+            overflow: hidden;
+        }
+
+        .card-title {
+            background: #f4f8fe;
+            padding: 6px 10px;
+            font-weight: 700;
+            font-size: 9pt;
+            color: #1f2f4d;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            border-bottom: 1px solid #e2e8f2;
+        }
+
+        .params-list {
+            padding: 2px 0;
+        }
+
+        .param-row {
+            display: flex;
+            align-items: flex-start;
+            padding: 5px 10px;
+            border-bottom: 1px solid #f0f3fa;
+        }
+
+        .param-row:last-child {
+            border-bottom: none;
+        }
+
+        .param-label {
+            width: 90px;
+            flex-shrink: 0;
+            font-size: 8pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #4d5b76;
+        }
+
+        .param-value {
+            flex: 1;
+            font-size: 8.5pt;
+            color: #1f2f4d;
+            font-weight: 500;
+            word-break: break-word;
+        }
+
+        .measurements-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8.5pt;
+            table-layout: fixed;
+        }
+
+        .measurements-table th {
+            background: #f0f5fd;
+            padding: 6px 4px;
+            text-align: left;
+            font-weight: 700;
+            color: #2a3a58;
+            text-transform: uppercase;
+            font-size: 7.5pt;
+            border-bottom: 1px solid #dce5f2;
+            word-wrap: break-word;
+        }
+
+        .measurements-table td {
+            padding: 6px 4px;
+            border-bottom: 1px solid #edf2f8;
+            color: #1f2f4d;
+            font-weight: 500;
+            word-wrap: break-word;
+        }
+
+        .measurements-table .spot-name {
+            font-weight: 700;
+            color: #ff6600;
+        }
+
+        .measurement-note {
+            padding: 6px 10px;
+            font-size: 7.5pt;
+            color: #5e6e8c;
+            border-top: 1px solid #eef2f8;
+            background: #fefefe;
+        }
+
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .img-box {
+            border: 1px solid #bfcadf;
+            text-align: center;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fdfdfd;
+        }
+
+        .img-frame {
+            width: 100%;
+            height: 190px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: #0a0c12;
+        }
+
+        .img-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+        }
+
+        .img-footer {
+            background: #f4f8fe;
+            border-top: 1px solid #d8e1ef;
+            padding: 4px;
+            font-size: 8pt;
+            font-weight: 600;
+            color: #223554;
+        }
+
+        .text-area {
+            min-height: 40px;
+            vertical-align: top;
+            padding: 8px;
+            background: #fefefc;
+            line-height: 1.4;
+            font-size: 8.5pt;
+            word-break: break-word;
+        }
+
+        .footer {
+            margin-top: 16px;
+            text-align: right;
+            font-size: 7.5pt;
+            color: #6b7990;
+            border-top: 1px solid #e3e9f2;
+            padding-top: 6px;
+        }
+
+        .info-card, 
+        .image-grid, 
+        .metrics-grid, 
+        .section-header,
+        .report-meta-table,
+        tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        @media print {
+            body {
+                background: none;
+                padding: 0;
+            }
+            .document {
+                max-width: 100%;
+                min-height: auto;
+                padding: 0;
+                border: none;
+                box-shadow: none;
+                background: white;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="document">
+    <div class="main-title">RELATÓRIO TERMOGRÁFICO</div>
+    <div class="header-info">Relatório Técnico de Inspeção N°: {{OS_NUMERO}}</div>
+    
+    <div class="header-separator"></div>
+
+    <table class="report-meta-table">
+        <colgroup>
+            <col style="width: 25%">
+            <col style="width: 25%">
+            <col style="width: 20%">
+            <col style="width: 30%">
+        </colgroup>
+        <tr>
+            <td class="label">Instalação:</td>
+            <td colspan="3">{{INSTALACAO_NOME}}</td>
+        </tr>
+        <tr>
+            <td class="label">Termografista / Relatado por:</td>
+            <td colspan="3">{{TERMOGRAFISTA}}</td>
+        </tr>
+        <tr>
+            <td class="label">Nº Certificação:</td>
+            <td>{{CERTIFICACAO}}</td>
+            <td class="label">Data:</td>
+            <td>{{DATA_RELATORIO}}</td>
+        </tr>
+        <tr>
+            <td class="label">Equipamento / Câmera:</td>
+            <td colspan="3">{{EQUIPAMENTO}}</td>
+        </tr>
+    </table>
+
+    <div class="section-header">
+        <div class="red-bar"></div>
+        <div class="section-title">REGISTROS FOTOGRÁFICOS - TERMOGRAMA 1</div>
+    </div>
+
+    <div class="image-grid">
+        <div class="img-box">
+            <div class="img-frame">
+                {{IMAGEM_TERMICA_1}}
+            </div>
+            <div class="img-footer">Imagem Térmica (IR)</div>
+        </div>
+        <div class="img-box">
+            <div class="img-frame">
+                {{IMAGEM_VISUAL_1}}
+            </div>
+            <div class="img-footer">Imagem Visual (Luz Visível)</div>
+        </div>
+    </div>
+
+    <div class="section-header">
+        <div class="red-bar"></div>
+        <div class="section-title">PARÂMETROS TÉCNICOS E MEDIÇÕES</div>
+    </div>
+
+    <div class="metrics-grid">
+        <div class="info-card">
+            <div class="card-title">PARÂMETROS DE INSPEÇÃO</div>
+            <div class="params-list">
+                <div class="param-row">
+                    <span class="param-label">Tag Equipamento</span>
+                    <span class="param-value">{{TAG_EQUIPAMENTO_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Criticidade</span>
+                    <span class="param-value">{{CRITICIDADE_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Emissividade</span>
+                    <span class="param-value">{{EMISSIVIDADE_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Data/Hora Captura</span>
+                    <span class="param-value">{{CAPTURA_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Localização</span>
+                    <span class="param-value">{{LOCALIZACAO_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Escala Visual</span>
+                    <span class="param-value">{{ESCALA_VISUAL_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Distância (m)</span>
+                    <span class="param-value">{{DISTANCIA_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">T. Ambiente (°C)</span>
+                    <span class="param-value">{{TEMP_AMBIENTE_1}}</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Umidade RH (%)</span>
+                    <span class="param-value">{{UMIDADE_1}}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <div class="card-title">MEDIÇÕES PONTUAIS (SPOTS)</div>
+            <table class="measurements-table">
+                <colgroup>
+                    <col style="width: 22%">
+                    <col style="width: 22%">
+                    <col style="width: 28%">
+                    <col style="width: 28%">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Ident.</th>
+                        <th>Tspot (°C)</th>
+                        <th>Tmáx Adm (°C)</th>
+                        <th>Delta (°C)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="spot-name">Spot 1</td>
+                        <td>{{SPOT_1_TSPOT}}</td>
+                        <td>{{SPOT_1_TMAX_AD}}</td>
+                        <td>{{SPOT_1_MARGEM}}</td>
+                    </tr>
+                    <tr>
+                        <td class="spot-name">Spot 2</td>
+                        <td>{{SPOT_2_TSPOT}}</td>
+                        <td>{{SPOT_2_TMAX_AD}}</td>
+                        <td>{{SPOT_2_MARGEM}}</td>
+                    </tr>
+                    <tr>
+                        <td class="spot-name">Spot 3</td>
+                        <td>{{SPOT_3_TSPOT}}</td>
+                        <td>{{SPOT_3_TMAX_AD}}</td>
+                        <td>{{SPOT_3_MARGEM}}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="measurement-note">
+                📐 Margem = Tspot - Tmáx Admissível. Baseado na emissividade.
+            </div>
+        </div>
+    </div>
+
+    <div class="section-header">
+        <div class="red-bar"></div>
+        <div class="section-title">OBSERVAÇÕES E RECOMENDAÇÕES</div>
+    </div>
+
+    <table class="report-meta-table">
+        <colgroup>
+            <col style="width: 25%">
+            <col style="width: 75%">
+        </colgroup>
+        <tr>
+            <td class="label">Observações (IR 1):</td>
+            <td class="text-area">{{OBSERVACOES_1}}</td>
+        </tr>
+        <tr>
+            <td class="label">Ação Recomendada:</td>
+            <td class="text-area">{{ACAO_RECOMENDADA_1}}</td>
+        </tr>
+    </table>
+
+    <div class="footer">{{RODAPE}}</div>
+</div>
+
+</body>
+</html>

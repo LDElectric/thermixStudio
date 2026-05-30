@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\ThermixStudio.Core\ThermixStudio.Core.csproj" />
@@ -18,13 +18,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\thermix_studio.ico"
-          Link="thermix_studio.ico"
-          CopyToOutputDirectory="PreserveNewest" />
-      <None Include="..\..\extrair_imagens_flir.py"
-        Link="tools\extrair_imagens_flir.py"
-        CopyToOutputDirectory="PreserveNewest"
-        CopyToPublishDirectory="Never" />
+    <EmbeddedResource Include="..\..\icone_windows.ico"
+                      Link="icone_windows.ico"
+                      LogicalName="ThermixStudio.App.icone_windows" />
+      <EmbeddedResource Include="..\..\.venv\Lib\site-packages\dji_executables\dji_thermal_sdk_v1.7\exiftool-12.35.exe"
+        Condition="Exists('..\..\.venv\Lib\site-packages\dji_executables\dji_thermal_sdk_v1.7\exiftool-12.35.exe')"
+        Link="tools\exiftool.exe"
+        LogicalName="ThermixStudio.App.Embedded.exiftool.exe" />
+      <EmbeddedResource Include="docs\manual-instrucoes.html"
+        LogicalName="ThermixStudio.App.Embedded.manual-instrucoes.html" />
       <None Include="templates\relatorio termografico.html"
         Link="templates\relatorio termografico.html"
         CopyToOutputDirectory="PreserveNewest"
@@ -33,12 +35,19 @@
         Link="docs\manual-instrucoes.html"
         CopyToOutputDirectory="PreserveNewest"
         CopyToPublishDirectory="Never" />
+      <Content Include="paletas\*_lut.json"
+        CopyToOutputDirectory="Always"
+        CopyToPublishDirectory="PreserveNewest" />
+      <None Include="paletas\*_lut.csv"
+        Condition="Exists('paletas')"
+        CopyToOutputDirectory="PreserveNewest"
+        CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <ApplicationIcon>..\..\thermix_studio.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\icone_windows.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -58,5 +67,29 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
   </PropertyGroup>
+
+  <!-- Executável portátil: suprimir arquivos soltos desnecessários -->
+  <Target Name="SuppressLooseFilesFromPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <!-- Fontes Lato do QuestPDF: já embutidas na DLL do QuestPDF 2022.12+ -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('LatoFont'))" />
+      <!-- Documentação XML do WebView2: não é necessária em runtime -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="$([System.String]::Copy('%(ResolvedFileToPublish.Filename)').StartsWith('Microsoft.Web.WebView2'))" />
+      <!-- Arquivos PDB de símbolos: desnecessários no executável de release -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Target removido: o ícone deve estar EMBUTIDO no executável via ApplicationIcon, não copiado -->
+  <!-- Também suprimir o arquivo .ico da pasta de publish -->
+  <Target Name="RemoveIconFromPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Filename)' == 'icone_windows'" />
+    </ItemGroup>
+  </Target>
 
 </Project>

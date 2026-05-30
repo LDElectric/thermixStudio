@@ -2,7 +2,8 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Relatório Termográfico - Identidade Fiel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório Termográfico - Thermix Studio</title>
     <style>
         * {
             margin: 0;
@@ -11,41 +12,49 @@
         }
 
         body {
-            background: linear-gradient(180deg, #eef2f9 0%, #e8edf7 100%);
+            background: #eef2f9;
             font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
             color: #1f2430;
-            padding: 20px;
+            padding: 12px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        @page {
+            size: A4;
+            margin: 12mm 15mm;
         }
 
         .document {
-            max-width: 800px;
+            max-width: 210mm;
+            min-height: 297mm;
             margin: 0 auto;
             background: #ffffff;
-            padding: 34px;
+            padding: 12mm 10mm;
             border: 1px solid #d1d9e8;
-            border-radius: 14px;
-            box-shadow: 0 8px 26px rgba(22, 32, 54, 0.10);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }
 
         .main-title {
             color: #ff6600;
-            font-size: 22pt;
+            font-size: 18pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 5px;
-            letter-spacing: 0.4px;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
         }
 
         .header-info {
             text-align: center;
-            font-size: 11pt;
-            margin-bottom: 10px;
+            font-size: 9pt;
+            margin-bottom: 8px;
             color: #41506c;
         }
 
         .header-separator {
             border-bottom: 2px solid #ff6600;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
         }
 
         .section-header {
@@ -53,82 +62,181 @@
             align-items: stretch;
             background: linear-gradient(90deg, #f7faff 0%, #eef3fb 100%);
             border: 1px solid #d6deed;
-            margin: 20px 0 10px 0;
-            border-radius: 8px;
+            margin: 14px 0 8px 0;
+            border-radius: 6px;
             overflow: hidden;
+            page-break-after: avoid;
+            break-after: avoid;
         }
 
         .red-bar {
-            width: 8px;
+            width: 6px;
             background-color: #ff6600;
         }
 
         .section-title {
-            padding: 8px 12px;
+            padding: 5px 10px;
             font-weight: bold;
-            font-size: 11pt;
+            font-size: 9.5pt;
             text-transform: uppercase;
             color: #1f2f4d;
+            letter-spacing: 0.3px;
         }
 
-        /* Tabelas de Dados */
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
 
         .report-meta-table {
             table-layout: fixed;
+            margin-bottom: 10px;
         }
 
         .report-meta-table td {
-            overflow-wrap: anywhere;
-            word-break: break-word;
-            white-space: normal;
             vertical-align: top;
+            padding: 5px 6px;
+            font-size: 8.5pt;
+            word-wrap: break-word;
         }
 
-        td {
-            border: 1px solid #bfcadf;
-            padding: 8px;
-            font-size: 10pt;
-            vertical-align: middle;
-        }
-
-        .data-table td {
-            padding: 7px 8px;
-        }
-
-        .label {
-            font-weight: bold;
+        td.label {
+            font-weight: 700;
             background-color: #f5f8fd;
-            width: 20%;
             color: #2a3a58;
         }
 
-        /* Área de Imagens */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .info-card {
+            border: 1px solid #d0d8ea;
+            border-radius: 6px;
+            background: #ffffff;
+            overflow: hidden;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        .card-title {
+            background: #f4f8fe;
+            padding: 6px 10px;
+            margin-bottom: 1px;
+            font-weight: 700;
+            font-size: 9pt;
+            color: #1f2f4d;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            border-bottom: 1px solid #e2e8f2;
+        }
+
+        .params-list {
+            padding: 2px 0;
+        }
+
+        .param-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 5px 10px;
+            border-bottom: 1px solid #f0f3fa;
+            font-size: 8pt;
+        }
+
+        .param-row:last-child {
+            border-bottom: none;
+        }
+
+        .param-label {
+            width: 112px;
+            flex-shrink: 0;
+            font-size: 7.5pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #4d5b76;
+            line-height: 1.35;
+        }
+
+        .param-value {
+            flex: 1;
+            font-size: 8.2pt;
+            color: #1f2f4d;
+            font-weight: 500;
+            word-break: break-word;
+            line-height: 1.35;
+            padding-left: 2px;
+        }
+
+        .measurements-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8.5pt;
+            table-layout: fixed;
+        }
+
+        .measurements-table th {
+            background: #f0f5fd;
+            padding: 5px 4px;
+            text-align: left;
+            font-weight: 700;
+            color: #2a3a58;
+            text-transform: uppercase;
+            font-size: 7.5pt;
+            border-bottom: 1px solid #dce5f2;
+            word-wrap: break-word;
+        }
+
+        .measurements-table td {
+            padding: 5px 4px;
+            border-bottom: 1px solid #edf2f8;
+            color: #1f2f4d;
+            font-weight: 500;
+            word-wrap: break-word;
+        }
+
+        .measurements-table .spot-name {
+            font-weight: 700;
+            color: #ff6600;
+        }
+
+        .measurement-note {
+            padding: 5px 10px;
+            font-size: 7.5pt;
+            color: #5e6e8c;
+            border-top: 1px solid #eef2f8;
+            background: #fefefe;
+        }
+
         .image-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
 
         .img-box {
             border: 1px solid #bfcadf;
             text-align: center;
-            min-width: 0;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fdfdfd;
         }
 
         .img-frame {
             width: 100%;
-            height: 200px;
+            height: 260px;
             display: flex;
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            background: #000;
+            background: #0a0c12;
         }
 
         .img-box img {
@@ -136,124 +244,68 @@
             height: 100%;
             object-fit: contain;
             object-position: center;
-            display: block;
-            background-color: #000;
-        }
-
-        .img-placeholder {
-            width: 100%;
-            height: 100%;
-            background: #1a1a1a;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #666;
-            font-size: 10pt;
         }
 
         .img-footer {
-            background: #eef3fb;
-            border-top: 1px solid #c8d3e7;
+            background: #f4f8fe;
+            border-top: 1px solid #d8e1ef;
             padding: 4px;
-            font-size: 9pt;
-            font-weight: bold;
+            font-size: 8pt;
+            font-weight: 600;
             color: #223554;
         }
 
-        /* Estilo para Parecer Técnico */
         .text-area {
-            height: 80px;
+            min-height: 40px;
             vertical-align: top;
-            padding-top: 10px;
-        }
-
-        .checkbox-area {
-            display: flex;
-            gap: 10px;
-        }
-
-        .box {
-            width: 12px;
-            height: 12px;
-            border: 1px solid #000;
-            display: inline-block;
-            margin-right: 4px;
-        }
-
-        .box.checked {
-            background: #2B3D4F;
-            position: relative;
-        }
-
-        .box.checked::after {
-            content: "";
-            position: absolute;
-            left: 3px;
-            top: 0;
-            width: 4px;
-            height: 8px;
-            border: solid #FFFFFF;
-            border-width: 0 2px 2px 0;
-            transform: rotate(45deg);
-        }
-
-        .measurement-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0;
-            table-layout: fixed;
-        }
-
-        .measurement-table th,
-        .measurement-table td {
-            border: 1px solid #c2ccde;
-            padding: 6px 7px;
-            font-size: 9.3pt;
-            text-align: left;
-            vertical-align: middle;
-        }
-
-        .measurement-table th {
-            background: #e9f0fb;
-            color: #1f2f4d;
-            font-weight: 700;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .measurement-empty {
-            text-align: center;
-            color: #6B7280;
-            font-style: italic;
-        }
-
-        .measurement-note {
-            margin-top: 6px;
-            font-size: 8.8pt;
-            color: #5F6775;
-            line-height: 1.35;
-        }
-
-        .page-break {
-            page-break-after: always;
+            padding: 8px;
+            background: #fefefc;
+            line-height: 1.4;
+            font-size: 8.5pt;
+            word-break: break-word;
         }
 
         .footer {
-            margin-top: 20px;
+            margin-top: 16px;
             text-align: right;
-            font-size: 8.5pt;
-            color: #5c677b;
+            font-size: 7.5pt;
+            color: #6b7990;
+            border-top: 1px solid #e3e9f2;
+            padding-top: 6px;
         }
 
-        @page {
-            size: A4;
-            margin: 12mm;
+        .thermogram-page {
+            margin-bottom: 10px;
+        }
+
+        .thermogram-page-break {
+            page-break-after: always;
+            break-after: page;
+        }
+
+        .info-card, 
+        .image-grid, 
+        .metrics-grid, 
+        .section-header,
+        .report-meta-table,
+        tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
 
         @media print {
-            body { background: none; padding: 0; }
-            .document { border: none; box-shadow: none; border-radius: 0; max-width: 100%; padding: 0; }
+            body {
+                background: none;
+                padding: 0;
+            }
+            .document {
+                max-width: 100%;
+                min-height: auto;
+                padding: 0;
+                border: none;
+                box-shadow: none;
+                background: white;
+            }
         }
     </style>
 </head>
@@ -267,24 +319,32 @@
 
     <table class="report-meta-table">
         <colgroup>
-            <col style="width: 20%;">
-            <col style="width: 30%;">
-            <col style="width: 20%;">
-            <col style="width: 30%;">
+            <col style="width: 25%">
+            <col style="width: 25%">
+            <col style="width: 20%">
+            <col style="width: 30%">
         </colgroup>
         <tr>
             <td class="label">Instalação:</td>
             <td colspan="3">{{INSTALACAO_NOME}}</td>
         </tr>
         <tr>
-            <td class="label">Equipamento:</td>
-            <td>{{EQUIPAMENTO}}</td>
+            <td class="label">Termografista:</td>
+            <td colspan="3">{{TERMOGRAFISTA}}</td>
+        </tr>
+        <tr>
+            <td class="label">Nº Certificação:</td>
+            <td>{{CERTIFICACAO}}</td>
             <td class="label">Data:</td>
             <td>{{DATA_RELATORIO}}</td>
         </tr>
+        <tr>
+            <td class="label">Equipamento:</td>
+            <td colspan="3">{{EQUIPAMENTO}}</td>
+        </tr>
     </table>
 
-    {{SECOES_RELATORIO}}
+    {{THERMOGRAM_SECTIONS}}
 
     <div class="footer">{{RODAPE}}</div>
 

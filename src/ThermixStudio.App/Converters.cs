@@ -122,3 +122,61 @@ public sealed class IsothermModeToPortugueseConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
+
+public sealed class AnalysisToolToPortugueseConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not ViewModels.AnalysisTool tool)
+        {
+            return string.Empty;
+        }
+
+        return tool switch
+        {
+            ViewModels.AnalysisTool.Hand => "Mao (Mover)",
+            ViewModels.AnalysisTool.Spot => "Spot",
+            ViewModels.AnalysisTool.Area => "Retangulo (ilustracao)",
+            ViewModels.AnalysisTool.Line => "Seta (ilustracao)",
+            ViewModels.AnalysisTool.Circle => "Circulo (ilustracao)",
+            ViewModels.AnalysisTool.IllustrationArrow => "Seta (ilustracao)",
+            ViewModels.AnalysisTool.IllustrationRectangle => "Retangulo (ilustracao)",
+            ViewModels.AnalysisTool.IllustrationEllipse => "Elipse (ilustracao)",
+            ViewModels.AnalysisTool.IllustrationText => "Texto (ilustracao)",
+            ViewModels.AnalysisTool.AutoAdjustRegion => "Regiao Auto-ajuste",
+            _ => tool.ToString()
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class ThermalPaletteToPortugueseConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not ThermalPalette palette)
+        {
+            return string.Empty;
+        }
+
+        return palette switch
+        {
+            ThermalPalette.Original => "Original da câmera",
+            ThermalPalette.Iron => "Ferro",
+            ThermalPalette.Rainbow => "Arco-íris",
+            ThermalPalette.Grayscale => "Cinza",
+            ThermalPalette.Hotmetal => "Metal Quente",
+            ThermalPalette.Arctic => "Ártico",
+            ThermalPalette.Thermal => "Térmica",
+            ThermalPalette.Jet => "Jet",
+            ThermalPalette.Hot => "Quente",
+            ThermalPalette.Cool => "Fria",
+            _ => palette.ToString()
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}

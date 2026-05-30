@@ -31,6 +31,13 @@ public sealed class AppDataService(ThermixDbContext dbContext) : IAppDataService
                 "ALTER TABLE Thermograms ADD COLUMN ProcessingJson TEXT NOT NULL DEFAULT '{{}}'",
                 cancellationToken);
         }
+
+        if (!await ColumnExistsAsync("ThermalMeasurements", "MaxAdmissibleC", cancellationToken))
+        {
+            await dbContext.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE ThermalMeasurements ADD COLUMN MaxAdmissibleC REAL NULL",
+                cancellationToken);
+        }
     }
 
     private async Task<bool> ColumnExistsAsync(string tableName, string columnName, CancellationToken cancellationToken)
@@ -173,6 +180,13 @@ public sealed class AppDataService(ThermixDbContext dbContext) : IAppDataService
     public async Task<ThermalMeasurement> AddMeasurementAsync(ThermalMeasurement measurement, CancellationToken cancellationToken = default)
     {
         dbContext.ThermalMeasurements.Add(measurement);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return measurement;
+    }
+
+    public async Task<ThermalMeasurement> UpdateMeasurementAsync(ThermalMeasurement measurement, CancellationToken cancellationToken = default)
+    {
+        dbContext.ThermalMeasurements.Update(measurement);
         await dbContext.SaveChangesAsync(cancellationToken);
         return measurement;
     }

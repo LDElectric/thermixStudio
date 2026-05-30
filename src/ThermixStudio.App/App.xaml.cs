@@ -1,9 +1,10 @@
-﻿using System.Windows;
+using System.Windows;
 using System.IO;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using ThermixStudio.Core;
+using ThermixStudio.Core.Services;
 using ThermixStudio.Infrastructure;
 using ThermixStudio.Reports;
 
@@ -27,8 +28,17 @@ public partial class App : Application
 			{
 				services.AddThermixInfrastructure(dbPath);
 				services.AddSingleton<IReportService, ReportService>();
-				services.AddSingleton<IThermalAnalysisService, Services.ThermalAnalysisService>();
+				
+				// FASE 1-3: Novos motores
+				services.AddSingleton<IExifToolService, Services.ExifToolService>();
 				services.AddSingleton<IThermalRenderEngine, Services.ThermalRenderEngine>();
+				services.AddSingleton<IThermalPaletteEngine, Services.ThermalPaletteEngine>();
+				services.AddSingleton<IThermalModeEngine, Services.ThermalModeEngine>();
+				services.AddSingleton<IThermalViewPipeline, Services.ThermalViewPipeline>();
+				services.AddSingleton<IVisualScaleDetector, Services.VisualScaleDetector>();
+				services.AddSingleton<IImageMetadataPreservationService, Services.ImageMetadataPreservationService>();
+
+				services.AddSingleton<IThermalAnalysisService, Services.ThermalAnalysisService>();
 
 				services.AddSingleton<ViewModels.MainViewModel>();
 				services.AddTransient<ViewModels.ReportEditorViewModel>();
@@ -47,16 +57,33 @@ public partial class App : Application
 		window.Show();
 	}
 
+	private static string ResolveProjectRoot()
+	{
+		var current = AppContext.BaseDirectory;
+		while (!string.IsNullOrEmpty(current))
+		{
+			if (Directory.Exists(Path.Combine(current, "src")) || 
+				File.Exists(Path.Combine(current, "Thermix Studio.sln")))
+			{
+				return current;
+			}
+			var parent = Path.GetDirectoryName(current);
+			if (parent == current || string.IsNullOrEmpty(parent)) break;
+			current = parent;
+		}
+		return AppContext.BaseDirectory;
+	}
+
 	private static string ResolveDatabasePath()
 	{
-		// Para executável portátil: banco de dados no mesmo diretório do executável
-		// Use AppContext.BaseDirectory ao invés de Assembly.Location para single-file apps
-		var appDirectory = AppContext.BaseDirectory;
-		var dbDirectory = Path.Combine(appDirectory, "thermixStudioDB");
+		// Para tudo ficar contido na pasta do projeto durante testes/depuração,
+		// localizamos a raiz do projeto e salvamos na pasta thermixStudioDB lá.
+		var projectRoot = ResolveProjectRoot();
+		var dbDirectory = Path.Combine(projectRoot, "thermixStudioDB");
 		Directory.CreateDirectory(dbDirectory);
 
-		var portableDbPath = Path.Combine(dbDirectory, "thermix.db");
-		return portableDbPath;
+		var dbPath = Path.Combine(dbDirectory, "thermix.db");
+		return dbPath;
 	}
 	
 	private static void SetDpiAwareness()

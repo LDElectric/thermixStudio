@@ -1,0 +1,100 @@
+o que eu achei sobre a deteção de modos Termico IV, MSX e Combinação Termica foi isto:
+ssa abordagem de SE...ENTÃO com base nos seus 3 arquivos reais.
+
+O que eu medi nos arquivos
+
+1.jpg (MSX):
+corr(orig, térmico) = -0.1865
+corr(orig, visível) = -0.1768
+razão alta frequência orig/visível = 3.643
+2.jpg (Térmico puro):
+corr(orig, térmico) = 0.2913
+corr(orig, visível) = -0.1042
+razão alta frequência orig/visível = 1.770
+3.jpg (Combinação térmica):
+corr(orig, térmico) = 0.2758
+corr(orig, visível) = 0.1989
+razão alta frequência orig/visível = 2.157
+Esses números dão um critério objetivo e separável entre os três casos.
+
+Regras SE...ENTÃO
+
+SE corr(orig,térmico) <= -0.05 E corr(orig,visível) <= -0.05 E hf(orig)/hf(visível) >= 2.7 ENTÃO modo inicial = MSX.
+SE corr(orig,térmico) >= 0.12 E corr(orig,visível) >= 0.10 ENTÃO modo inicial = Combinação térmica.
+SE corr(orig,térmico) >= 0.15 E corr(orig,visível) <= 0.05 ENTÃO modo inicial = Térmico puro.
+SENÃO: mantém fallback para o algoritmo de score antigo (não quebra casos fora da sua amostra).
+
+assim corrigimos a detecção dos modos Termico IV, MSX e Combinação Termica
+
+
+Para correção das ilustrações eu busquei no historico de conversas e vi que você corrigiu desta forma:
+"Corrigi os 4 pontos que você pediu e validei build com sucesso.
+
+O que foi resolvido
+
+Desfazer (Ctrl+Z) agora funciona para ilustrações
+Implementei histórico por snapshots das ilustrações por termograma e o Ctrl+Z agora tenta desfazer ilustração antes de cair no fluxo antigo de medições.
+Referências:
+MainViewModel.cs:866
+MainViewModel.cs:2961
+MainViewModel.cs:3003
+Remoção de ilustrações ficou mais fácil (incluindo retângulo)
+O hit-test não é mais “centro do objeto”; agora usa distância geométrica da forma.
+Para retângulo/elipse, clicar dentro já conta como seleção.
+Isso melhora muito remover/arrastar via clique direito + remover e tecla Delete.
+Referências:
+MainWindow.xaml.cs:1105
+MainWindow.xaml.cs:1170
+Texto inline ficou mais estável
+Ao clicar para desenhar/editar, o commit do editor inline agora é aguardado (evita corrida).
+Se a ferramenta ativa for texto e você clicar num texto existente, abre edição inline diretamente.
+Referências:
+MainWindow.xaml.cs:566
+MainWindow.xaml.cs:577
+Relatório passa a usar a imagem IR exatamente como o usuário está vendo
+Adicionei um snapshot da visualização atual (modo, paleta, spots e ilustrações) no momento de gerar relatório.
+Esse snapshot é enviado ao editor e usado na seção IR inicial do termograma selecionado.
+Referências:
+MainWindow.xaml.cs:70
+MainWindow.xaml.cs:1756
+MainViewModel.cs:258
+MainViewModel.cs:1625
+ReportEditorViewModel.cs:97
+ReportEditorViewModel.cs:150
+Ajuste adicional importante
+
+Também garanti persistência correta do modo de visualização no estado térmico, com mapeamento seguro entre enums App/Core.
+Referências:
+MainViewModel.cs:526
+MainViewModel.cs:1687
+MainViewModel.cs:2271
+
+Vou ligar o texto ao mesmo ciclo das outras ilustrações: seleção, arraste, exclusão e snapshot de desfazer. Primeiro vou localizar o fluxo atual de drag/remoção/undo para encaixar o tipo Text sem espalhar mudanças.
+
+Estou olhando o fluxo real do mouse porque o ponto crítico parece ser que o texto entra em “modo editar” cedo demais e nunca chega ao mesmo caminho de arraste/seleção das outras ilustrações. Se for isso, a correção é pequena: separar “clicar para editar” de “clicar/arrastar para mover”.
+
+A base já existe: update, add, remove e undo estão no ViewModel. O que falta é fazer o texto entrar no mesmo caminho de arraste/remoção sem trocar isso por edição imediata. Vou olhar o ponto exato onde o clique em texto desvia para o editor para separar essas intenções.
+
+Encontrei o ponto decisivo: hoje um clique em texto existente vira edição, então ele nunca entra no caminho de seleção/drag/delete. Vou trocar isso para o mesmo comportamento das outras ilustrações e manter a edição no menu de contexto.
+
+A edição do clique em texto foi removida; agora ele entra no mesmo fluxo de seleção/arraste e continua apagável com Delete. Vou validar se isso não quebrou o build e, se passar, a parte de undo já fica coberta pelo snapshot do update/remove.
+
+Ajustei o fluxo em MainWindow.xaml.cs: o texto agora entra no mesmo caminho das outras ilustrações para selecionar, arrastar com o mouse e excluir com Delete, e essas alterações continuam indo para o histórico de desfazer porque o ViewModel já faz snapshot em add/update/remove.
+
+Também removi o atalho de “clique simples para editar” no texto existente, porque ele estava impedindo o arraste. A edição continua disponível pelo menu de contexto da própria ilustração, e a criação de novo texto segue funcionando no modo de texto sobre a área vazia."
+
+
+E depos você falou isso sobre a persistencia dos elementos de ilustração na alternancia de paletas:
+Vou ligar o texto ao mesmo ciclo das outras ilustrações: seleção, arraste, exclusão e snapshot de desfazer. Primeiro vou localizar o fluxo atual de drag/remoção/undo para encaixar o tipo Text sem espalhar mudanças.
+
+Estou olhando o fluxo real do mouse porque o ponto crítico parece ser que o texto entra em “modo editar” cedo demais e nunca chega ao mesmo caminho de arraste/seleção das outras ilustrações. Se for isso, a correção é pequena: separar “clicar para editar” de “clicar/arrastar para mover”.
+
+A base já existe: update, add, remove e undo estão no ViewModel. O que falta é fazer o texto entrar no mesmo caminho de arraste/remoção sem trocar isso por edição imediata. Vou olhar o ponto exato onde o clique em texto desvia para o editor para separar essas intenções.
+
+Encontrei o ponto decisivo: hoje um clique em texto existente vira edição, então ele nunca entra no caminho de seleção/drag/delete. Vou trocar isso para o mesmo comportamento das outras ilustrações e manter a edição no menu de contexto.
+
+A edição do clique em texto foi removida; agora ele entra no mesmo fluxo de seleção/arraste e continua apagável com Delete. Vou validar se isso não quebrou o build e, se passar, a parte de undo já fica coberta pelo snapshot do update/remove.
+
+Ajustei o fluxo em MainWindow.xaml.cs: o texto agora entra no mesmo caminho das outras ilustrações para selecionar, arrastar com o mouse e excluir com Delete, e essas alterações continuam indo para o histórico de desfazer porque o ViewModel já faz snapshot em add/update/remove.
+
+Também removi o atalho de “clique simples para editar” no texto existente, porque ele estava impedindo o arraste. A edição continua disponível pelo menu de contexto da própria ilustração, e a criação de novo texto segue funcionando no modo de texto sobre a área vazia.

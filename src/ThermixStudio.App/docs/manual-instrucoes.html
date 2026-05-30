@@ -171,122 +171,126 @@
 
         <section class="card">
             <h2>1) Visão Geral</h2>
-            <p>O Thermix Studio possui duas áreas principais:</p>
+            <p>O Thermix Studio é dividido em duas frentes:</p>
             <ul>
-                <li><strong>Tela de Análise:</strong> importação do termograma, marcações, medições e ajustes térmicos.</li>
-                <li><strong>Tela de Relatório:</strong> composição final com termogramas, observações e geração de PDF.</li>
+                <li><strong>Análise:</strong> importação, visualização e tratamento dos termogramas.</li>
+                <li><strong>Editor de relatório:</strong> composição por seções e emissão de PDF com pré-visualização.</li>
             </ul>
+            <div class="note">
+                <strong>Fluxo recomendado:</strong> importe o termograma, ajuste parâmetros, lance medições e só então abra o editor de relatório.
+            </div>
         </section>
 
         <div class="grid">
             <section class="card">
-                <h2>2) Tela de Análise</h2>
-                <h3>Painel esquerdo</h3>
+                <h2>2) Barra de Menu (tela principal)</h2>
                 <ul>
-                    <li><strong>Biblioteca de termogramas:</strong> lista os arquivos analisados.</li>
-                    <li><strong>Seleção de termograma:</strong> carrega imagem e medições associadas.</li>
+                    <li><strong>Arquivo:</strong> abrir termograma e sair.</li>
+                    <li><strong>Editar:</strong> desfazer, remover medição selecionada e remover termograma.</li>
+                    <li><strong>Ferramentas:</strong> mão, medições, ilustrações e exportações CSV.</li>
+                    <li><strong>Relatório:</strong> abre o editor para geração do relatório técnico.</li>
+                    <li><strong>Ajuda:</strong> instruções e tela Sobre.</li>
+                </ul>
+            </section>
+
+            <section class="card">
+                <h2>3) Barra de Ferramentas</h2>
+                <ul>
+                    <li><strong>Abrir:</strong> importa um ou mais termogramas.</li>
+                    <li><strong>Ferramenta ativa:</strong> selecionada no combo de ferramentas.</li>
+                    <li><strong>ΔT:</strong> calcula diferença entre os 2 últimos spots.</li>
+                    <li><strong>Modo de imagem:</strong> MSX, Térmica (IV), Imagem na imagem, Combinação térmica e Câmera digital.</li>
+                    <li><strong>Desfazer:</strong> atalho para última ação de medição/ilustração.</li>
+                    <li><strong>Gerar Relatório:</strong> acesso rápido ao editor.</li>
+                </ul>
+            </section>
+        </div>
+
+        <div class="grid">
+            <section class="card">
+                <h2>4) Área de Análise</h2>
+                <h3>Painel esquerdo (biblioteca)</h3>
+                <ul>
+                    <li>Lista os termogramas importados da inspeção atual.</li>
+                    <li>Permite seleção e remoção de item por menu contextual.</li>
                 </ul>
 
                 <h3>Área central (imagem)</h3>
                 <ul>
                     <li><strong>Zoom:</strong> roda do mouse.</li>
-                    <li><strong>Pan:</strong> botão direito pressionado e arraste.</li>
-                    <li><strong>Inserção de medições:</strong> conforme ferramenta ativa.</li>
-                </ul>
-
-                <h3>Painel direito (propriedades)</h3>
-                <ul>
-                    <li><strong>Termograma/Equipamento:</strong> Tag, descrição, localização, criticidade, observações.</li>
-                    <li><strong>Tratamento térmico:</strong> paleta, emissividade, Tmax admissível, auto scale.</li>
-                    <li><strong>Medições:</strong> lista de Spot/Área/Linha/Círculo etc.</li>
+                    <li><strong>Pan:</strong> modo Mão ou arraste com botão direito.</li>
+                    <li><strong>Medições/ilustrações:</strong> inseridas diretamente sobre a imagem.</li>
                 </ul>
             </section>
 
             <section class="card">
-                <h2>3) Ferramentas de Medição</h2>
-                <h3>Spot</h3>
-                <p>Medição pontual de temperatura em um pixel/região muito pequena.</p>
-
-                <h3>Área</h3>
-                <p>Marca uma região de interesse. Pode ser usada para destacar uma área no diagnóstico.</p>
-
-                <h3>Linha</h3>
-                <p>Perfil térmico ao longo de uma linha, útil para gradiente térmico.</p>
-
-                <h3>Círculo</h3>
-                <p>Estatística térmica em região circular.</p>
-
-                <h3>Diferença (2 Spots)</h3>
-                <p>Compara os dois últimos spots para obter delta de temperatura.</p>
-
-                <div class="note">
-                    <strong>Importante:</strong> no relatório técnico final, as medições exibidas podem ser filtradas para focar em Spot e comparação com limite admissível.
-                </div>
+                <h2>5) Painel de Propriedades</h2>
+                <ul>
+                    <li><strong>ARQUIVO:</strong> câmera e data de captura.</li>
+                    <li><strong>CÂMERA / CAPTURA:</strong> metadados EXIF (nº de série, data/hora EXIF, FOV e janela IR).</li>
+                    <li><strong>EQUIPAMENTO:</strong> tag/código, descrição, localização e criticidade.</li>
+                    <li><strong>TRATAMENTO TÉRMICO:</strong> auto scale, paleta, emissividade, distância, temperatura ambiente, umidade e limite admissível.</li>
+                    <li><strong>MEDIÇÕES:</strong> lista das medições do termograma selecionado.</li>
+                </ul>
             </section>
         </div>
 
         <section class="card">
-            <h2>4) Como remover medições e itens</h2>
+            <h2>6) Ferramentas de Medição e Ilustração</h2>
             <ul>
-                <li>Selecione a medição e clique em <strong>Remover Selecionada</strong>.</li>
-                <li>Atalho de teclado: <span class="kbd">Del</span>.</li>
-                <li>Desfazer última ação: botão <strong>Desfazer</strong> ou <span class="kbd">Ctrl + Z</span>.</li>
-                <li>Remover termograma da lista: menu contextual no painel esquerdo.</li>
+                <li><strong>Spot:</strong> medição pontual de temperatura.</li>
+                <li><strong>Área:</strong> medição em região retangular.</li>
+                <li><strong>Linha:</strong> medição em perfil linear.</li>
+                <li><strong>Círculo:</strong> medição em região circular.</li>
+                <li><strong>Diferença (2 Spots):</strong> delta automático entre dois últimos spots.</li>
+                <li><strong>Ilustrações:</strong> seta, retângulo, elipse e texto para marcações visuais.</li>
             </ul>
+            <div class="note">
+                <strong>Atalhos úteis:</strong> <span class="kbd">Ctrl + Z</span> desfaz, <span class="kbd">Del</span> remove item selecionado.
+            </div>
         </section>
 
         <section class="card">
-            <h2>5) Salvamento na Análise</h2>
+            <h2>7) Exportações CSV</h2>
             <ul>
-                <li><strong>Salvar Propriedades</strong> grava textos e estado térmico do termograma (ex.: observações, criticidade, Tmax admissível).</li>
-                <li>Medições como Spot/Área/Linha são registradas quando criadas.</li>
-                <li>Antes de gerar relatório, o sistema sincroniza os campos editáveis com o termograma selecionado.</li>
+                <li><strong>Exportar CSV da imagem:</strong> matriz térmica processada.</li>
+                <li><strong>Exportar CSV de medições:</strong> tabela com medições cadastradas no termograma.</li>
             </ul>
         </section>
 
         <div class="grid">
             <section class="card">
-                <h2>6) Tela de Relatório</h2>
-                <h3>Painel esquerdo</h3>
+                <h2>8) Editor de Relatório</h2>
                 <ul>
-                    <li><strong>Dados do relatório:</strong> OS, instalação, equipamento, data.</li>
-                    <li><strong>Biblioteca de termogramas:</strong> adiciona novos termogramas ao relatório.</li>
-                    <li><strong>Seções editáveis:</strong> cada termograma vira uma seção.</li>
-                    <li><strong>Seção selecionada:</strong> permite editar observações e ação recomendada por seção.</li>
-                    <li><strong>Observações gerais:</strong> parecer e ação geral do relatório.</li>
-                </ul>
-
-                <h3>Painel direito</h3>
-                <ul>
-                    <li>Pré-visualização HTML do relatório em tempo real.</li>
+                    <li><strong>Dados do relatório:</strong> OS, instalação, equipamento, termografista, certificação e data.</li>
+                    <li><strong>Biblioteca de termogramas:</strong> adiciona termograma selecionado ao relatório.</li>
+                    <li><strong>Seções editáveis:</strong> cada termograma vira uma seção independente.</li>
+                    <li><strong>Seção selecionada:</strong> observações e recomendação por seção.</li>
+                    <li><strong>Pré-visualização:</strong> renderização HTML em tempo real no painel direito.</li>
                 </ul>
             </section>
 
             <section class="card">
-                <h2>7) Botões do Relatório</h2>
+                <h2>9) Emissão do Relatório</h2>
                 <ul>
-                    <li><strong>Adicionar ao relatório:</strong> inclui o termograma selecionado como nova seção.</li>
-                    <li><strong>Remover seção selecionada:</strong> exclui a seção atual.</li>
-                    <li><strong>Baixar PDF:</strong> abre janela para escolher onde salvar o PDF.</li>
-                    <li><strong>Gerar Relatório:</strong> gera artefatos do relatório e conclui o editor.</li>
-                    <li><strong>Cancelar:</strong> fecha sem finalizar a geração.</li>
+                    <li><strong>Baixar PDF:</strong> salva apenas o PDF no caminho escolhido.</li>
+                    <li><strong>Gerar Relatório:</strong> finaliza a geração dos artefatos do relatório.</li>
+                    <li><strong>Rodapé automático:</strong> data/hora de geração e versão do Thermix Studio.</li>
                 </ul>
-
                 <div class="note warn">
-                    <strong>Dica:</strong> se o texto de observações estiver longo, revise na pré-visualização antes de baixar o PDF.
+                    <strong>Boas práticas:</strong> revise a pré-visualização antes de emitir e confirme observações/recomendações de cada seção.
                 </div>
             </section>
         </div>
 
         <section class="card">
-            <h2>8) Legenda da tabela de spots no relatório</h2>
+            <h2>10) Regras de dados no relatório</h2>
             <ul>
-                <li><strong>Tspot:</strong> temperatura medida do spot.</li>
-                <li><strong>Tmax admissível:</strong> limite de temperatura definido na análise.</li>
-                <li><strong>Margem:</strong> espaço disponível até o limite (Tmax admissível - Tspot).</li>
-                <li><strong>Status:</strong> classificação automática de condição térmica: Normal, Atenção (próximo ao limite) ou Acima do limite.</li>
+                <li><strong>Distância, temperatura ambiente e umidade:</strong> priorizam valor digitado no painel; na ausência, usam metadado do termograma.</li>
+                <li><strong>Escala visual:</strong> usa preferencialmente a escala gravada pela câmera no EXIF.</li>
+                <li><strong>Spots:</strong> o relatório mostra apenas spots existentes; não há linhas vazias fixas.</li>
+                <li><strong>Título da seção:</strong> pode incluir descrição do equipamento junto ao nome do termograma.</li>
             </ul>
-            <p class="muted">A criticidade do equipamento é uma avaliação técnica do ativo; o status é uma leitura automática de condição térmica do spot versus limite admissível.</p>
         </section>
 
         <p class="footer">Thermix Studio - Manual local de instruções</p>

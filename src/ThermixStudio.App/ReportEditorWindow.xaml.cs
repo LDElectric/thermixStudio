@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using ThermixStudio.App.ViewModels;
 
@@ -12,6 +13,7 @@ public partial class ReportEditorWindow : Window
 {
     public ReportEditorViewModel ViewModel { get; }
     private bool _isPreviewReady;
+    private bool _initialHtmlLoaded;
 
     public ReportEditorWindow(ReportEditorViewModel viewModel)
     {
@@ -20,6 +22,7 @@ public partial class ReportEditorWindow : Window
         ViewModel = viewModel;
         DataContext = viewModel;
         viewModel.CloseRequested += OnCloseRequested;
+        viewModel.PdfRenderRequested += OnPdfRenderRequestedAsync;
         viewModel.PropertyChanged += ViewModelOnPropertyChanged;
         Loaded += OnLoaded;
     }
@@ -50,7 +53,26 @@ public partial class ReportEditorWindow : Window
             return;
         }
 
-        await Dispatcher.InvokeAsync(() => PreviewBrowser.NavigateToString(ViewModel.PreviewHtml));
+        var html = ViewModel.PreviewHtml;
+
+        await Dispatcher.InvokeAsync(async () =>
+        {
+            if (!_initialHtmlLoaded)
+            {
+                PreviewBrowser.NavigateToString(html);
+                _initialHtmlLoaded = true;
+            }
+            else
+            {
+                // Atualiza sem causar piscar: reescreve o documento via JS
+                var escaped = html
+                    .Replace("\\", "\\\\")
+                    .Replace("`", "\\`")
+                    .Replace("${", "\\${");
+                await PreviewBrowser.CoreWebView2.ExecuteScriptAsync(
+                    $"document.open(); document.write(`{escaped}`); document.close();");
+            }
+        });
     }
 
     private async Task<bool> EnsurePreviewReadyAsync()
@@ -62,7 +84,12 @@ public partial class ReportEditorWindow : Window
 
         try
         {
-            await PreviewBrowser.EnsureCoreWebView2Async();
+            var cacheDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ThermixStudio", "WebView2Cache");
+            Directory.CreateDirectory(cacheDir);
+            var env = await CoreWebView2Environment.CreateAsync(null, cacheDir);
+            await PreviewBrowser.EnsureCoreWebView2Async(env);
             if (PreviewBrowser.CoreWebView2 is not null)
             {
                 PreviewBrowser.CoreWebView2.Settings.AreDevToolsEnabled = false;
@@ -82,11 +109,43 @@ public partial class ReportEditorWindow : Window
 
     private void OnCloseRequested(bool generated)
     {
-        Dispatcher.Invoke(() =>
+        Dispatcher.Invoke(Close);
+    }
+
+    private async Task<bool> OnPdfRenderRequestedAsync(string pdfPath)
+    {
+        if (!await EnsurePreviewReadyAsync())
         {
-            DialogResult = generated;
-            Close();
-        });
+            MessageBox.Show(this, "Não foi possível inicializar o WebView2 para geração de PDF.", "Thermix Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        try
+        {
+            var settings = PreviewBrowser.CoreWebView2.Environment.CreatePrintSettings();
+            settings.PageWidth = 8.267;   // A4 em polegadas
+            settings.PageHeight = 11.693;
+            settings.MarginTop = 0.47;
+            settings.MarginBottom = 0.47;
+            settings.MarginLeft = 0.47;
+            settings.MarginRight = 0.47;
+            settings.ShouldPrintBackgrounds = true;
+            settings.HeaderTitle = string.Empty;
+            settings.FooterUri = string.Empty;
+
+            await PreviewBrowser.CoreWebView2.PrintToPdfAsync(pdfPath, settings);
+
+            MessageBox.Show(this,
+                $"Relatório gerado com sucesso!\n\n{pdfPath}",
+                "Thermix Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ReportEditorWindow] PDF generation failed: {ex.Message}");
+            MessageBox.Show(this, $"Falha ao gerar o relatório PDF.\n{ex.Message}", "Thermix Studio", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
     }
 
     private async void DownloadPdfButton_Click(object sender, RoutedEventArgs e)
@@ -94,6 +153,11 @@ public partial class ReportEditorWindow : Window
         if (ViewModel.Sections.Count == 0)
         {
             MessageBox.Show(this, "Adicione ao menos um termograma ao relatório antes de baixar o PDF.", "Thermix Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (!await EnsurePreviewReadyAsync())
+        {
             return;
         }
 
@@ -117,17 +181,18 @@ public partial class ReportEditorWindow : Window
 
         try
         {
-            var tempOutputDirectory = Path.Combine(Path.GetTempPath(), "ThermixStudio", "ReportDownloads");
-            Directory.CreateDirectory(tempOutputDirectory);
+            var settings = PreviewBrowser.CoreWebView2.Environment.CreatePrintSettings();
+            settings.PageWidth = 8.267;
+            settings.PageHeight = 11.693;
+            settings.MarginTop = 0.47;
+            settings.MarginBottom = 0.47;
+            settings.MarginLeft = 0.47;
+            settings.MarginRight = 0.47;
+            settings.ShouldPrintBackgrounds = true;
+            settings.HeaderTitle = string.Empty;
+            settings.FooterUri = string.Empty;
 
-            var result = await ViewModel.GenerateReportToDirectoryAsync(tempOutputDirectory);
-            if (result is null || !File.Exists(result.PdfPath))
-            {
-                MessageBox.Show(this, "Não foi possível gerar o PDF.", "Thermix Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            File.Copy(result.PdfPath, saveDialog.FileName, overwrite: true);
+            await PreviewBrowser.CoreWebView2.PrintToPdfAsync(saveDialog.FileName, settings);
             MessageBox.Show(this, "PDF salvo com sucesso.", "Thermix Studio", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
@@ -137,10 +202,22 @@ public partial class ReportEditorWindow : Window
         }
     }
 
+    private async void GenerateReportButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.Sections.Count == 0)
+        {
+            MessageBox.Show(this, "Adicione ao menos um termograma ao relatório.", "Thermix Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        await ViewModel.GenerateReportCommand.ExecuteAsync(null);
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         Loaded -= OnLoaded;
         ViewModel.CloseRequested -= OnCloseRequested;
+        ViewModel.PdfRenderRequested -= OnPdfRenderRequestedAsync;
         ViewModel.PropertyChanged -= ViewModelOnPropertyChanged;
         PreviewBrowser.Dispose();
         base.OnClosed(e);

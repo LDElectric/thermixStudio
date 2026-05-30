@@ -1,0 +1,15 @@
+Caminho de Implementação: Correção de FOV e Paralaxe do MSX
+Finalizamos a refatoração e implementação das correções em seu código para solucionar a distorção do Modo MSX (e de outros modos visuais), e o projeto compilou perfeitamente, sem nenhum erro ou aviso.
+
+O Problema Identificado
+Você nos forneceu o contexto preciso de que a prancheta (localizada na borda da imagem) possuía um comportamento divergente do carregador (localizado no centro). O problema ocorria porque a câmera térmica original armazena a matriz visual em um campo de visão (FOV) muito mais amplo que o sensor térmico, exigindo um remapeamento matemático para coincidir e não "escapar" pelas bordas. O antigo parallaxOffsetX/Y aplicava apenas uma translação linear 1:1, resolvendo o problema no meio, mas criando o "erro radial" na prancheta.
+
+As Mudanças Implementadas
+MainViewModel.cs - O Coração da Solução: Criamos a nova função AlignVisibleToThermalFOV e injetamos no pipeline de leitura da imagem (TryLoadVisibleBgraPixels).
+
+Ao puxar a imagem visível do disco/memória, agora percorremos os pixels térmicos (x, y) para resgatar a cor equivalente original com base na taxa de dilatação Real2IR (1.2895x) e na coordenada de distorção (OffsetX, OffsetY) exata do sensor E8.
+O resultado final passa a ser uma grade visível de 320x240 pixels perfeitamente "esticada e compensada" para aderir à matriz térmica.
+ThermalModeEngine.cs - Simplificação e Limpeza: Com os pixels da câmera visual pré-alinhados no momento do carregamento, o algoritmo gerador do Laplaciano (ComposeMsx) não precisa mais prever deslocamentos de paralaxe rígidos!
+
+Removemos as constantes antigas parallaxOffsetX e parallaxOffsetY.
+O algoritmo MSX agora trabalha usando vx = x; vy = y, tornando o código muito mais escalável para suportar metadados variáveis no futuro.

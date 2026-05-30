@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -200,7 +201,7 @@ public sealed class ReportService : IReportService
 
                 page.Footer().AlignRight().Text(txt =>
                 {
-                    txt.Span("Gerado por Thermix Studio em ");
+                    txt.Span($"Gerado por {GetProductVersionLabel()} em ");
                     txt.Span(DateTime.Now.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)).SemiBold();
                 });
             });
@@ -227,205 +228,312 @@ public sealed class ReportService : IReportService
     private static string BuildHtml(ReportRequest request, string osNumber, string installation, string equipment)
     {
         var template = LoadTemplate();
-        var processingState = request.Sections.Count > 0
-            ? ExtractProcessingState(request.Sections[0].Thermogram.ProcessingJson)
-            : new ThermalProcessingState();
+        var ptBr = new CultureInfo("pt-BR");
 
-        var sectionsHtml = new StringBuilder();
+        // Substituir placeholders de cabeçalho
+        var html = template
+            .Replace("{{OS_NUMERO}}", SafeEncode(osNumber))
+            .Replace("{{INSTALACAO_NOME}}", SafeEncode(installation))
+            .Replace("{{EQUIPAMENTO}}", SafeEncode(equipment))
+            .Replace("{{DATA_RELATORIO}}", SafeEncode(request.ReportDate.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)))
+            .Replace("{{TERMOGRAFISTA}}", SafeEncode(request.TechnicianName))
+            .Replace("{{CERTIFICACAO}}", SafeEncode(request.CertificationNumber));
 
-        for (var index = 0; index < request.Sections.Count; index++)
+        var sectionsBuilder = new StringBuilder();
+        for (var i = 0; i < request.Sections.Count; i++)
         {
-            var section = request.Sections[index];
-            sectionsHtml.Append(BuildSectionHtml(section, index + 1, index < request.Sections.Count - 1));
+            var sectionHtml = BuildThermogramSectionHtml(request.Sections[i], i + 1, ptBr, isLast: i == request.Sections.Count - 1);
+            sectionsBuilder.AppendLine(sectionHtml);
         }
 
-        return template
-            .Replace("{{OS_NUMERO}}", WebUtility.HtmlEncode(osNumber))
-            .Replace("{{INSTALACAO_NOME}}", WebUtility.HtmlEncode(installation))
-            .Replace("{{EQUIPAMENTO}}", WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(equipment) ? "-" : equipment))
-            .Replace("{{DATA_RELATORIO}}", WebUtility.HtmlEncode(request.ReportDate.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)))
-            .Replace("{{SECOES_RELATORIO}}", sectionsHtml.ToString())
-            .Replace("{{PARECER_TECNICO}}", WebUtility.HtmlEncode(request.TechnicalOpinion))
-            .Replace("{{ACAO_RECOMENDADA}}", WebUtility.HtmlEncode(request.RecommendedAction))
-            .Replace("{{RODAPE}}", WebUtility.HtmlEncode($"Gerado por Thermix Studio - {DateTime.Now:dd/MM/yyyy HH:mm}"))
-            .Replace("{{PALLETA_PASTA}}", WebUtility.HtmlEncode(processingState.Palette.ToString()));
+        html = html.Replace("{{THERMOGRAM_SECTIONS}}", sectionsBuilder.ToString());
+
+        // Substituir placeholders de rodapé
+        html = html.Replace("{{RODAPE}}", SafeEncode($"Gerado por {GetProductVersionLabel()} - {DateTime.Now:dd/MM/yyyy HH:mm}"));
+
+        return html;
     }
 
-    private static string BuildSectionHtml(ReportSectionRequest section, int index, bool isLast)
+    private static string BuildThermogramSectionHtml(ReportSectionRequest section, int sectionIndex, CultureInfo culture, bool isLast)
     {
-        var ptBr = new CultureInfo("pt-BR");
         var processing = ExtractProcessingState(section.Thermogram.ProcessingJson);
         var metadata = ExtractMetadata(section.Thermogram.MetadataJson);
         var visiblePath = ResolveVisiblePath(section.Thermogram);
-        var thermalMarkup = BuildImageMarkup(section.Thermogram.FilePath, "Termograma", "Imagem térmica não vinculada.");
+        var thermalImagePath = string.IsNullOrWhiteSpace(section.AnnotatedThermalImagePath)
+            ? section.Thermogram.FilePath
+            : section.AnnotatedThermalImagePath;
+
+        var thermalMarkup = BuildImageMarkup(thermalImagePath, "Termograma", "Imagem térmica não vinculada.");
         var visibleMarkup = BuildImageMarkup(visiblePath, "Foto Visual", "Imagem visual não vinculada.");
-
-        var formattedEmissivity = processing.Emissivity.ToString("F2", ptBr);
-        var globalTminValue = section.Measurements.Count == 0 ? processing.LevelMinC : section.Measurements.Min(x => x.Tmin);
-        var globalTmaxValue = section.Measurements.Count == 0 ? processing.LevelMaxC : section.Measurements.Max(x => x.Tmax);
-        var formattedGlobalTmin = globalTminValue.HasValue ? globalTminValue.Value.ToString("F1", ptBr) + " °C" : "-";
-        var formattedGlobalTmax = globalTmaxValue.HasValue ? globalTmaxValue.Value.ToString("F1", ptBr) + " °C" : "-";
-        var formattedDeltaGlobal = globalTminValue.HasValue && globalTmaxValue.HasValue
-            ? (globalTmaxValue.Value - globalTminValue.Value).ToString("F1", ptBr) + " °C"
-            : "-";
-        var formattedMaxAdmissible = processing.MaxAdmissibleC.HasValue
-            ? processing.MaxAdmissibleC.Value.ToString("F1", ptBr) + " °C"
-            : "-";
-
-        var formattedCaptureAt = section.Thermogram.CaptureAtUtc == default
-            ? "-"
-            : section.Thermogram.CaptureAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", ptBr);
-
-        var formattedLevelRange = FormatRange(processing.LevelMinC, processing.LevelMaxC, ptBr);
-        var formattedAmbient = FormatNullable(metadata.AmbientTemperatureC, "°C", ptBr);
-        var formattedReflected = FormatNullable(metadata.ReflectedTemperatureC, "°C", ptBr);
-        var formattedHumidity = FormatNullable(metadata.RelativeHumidity, "%", ptBr);
-        var formattedDistance = FormatNullable(metadata.ObjectDistanceM, "m", ptBr);
 
         var cameraModel = string.IsNullOrWhiteSpace(metadata.CameraModel) || metadata.CameraModel == "Unknown"
             ? section.Thermogram.CameraModel
             : metadata.CameraModel;
 
-        var criticalityMarkup = BuildCriticalityMarkup(section.Thermogram.Criticality);
+        var criticality = BuildCriticalityLabel(section.Thermogram.Criticality);
+        var formattedEmissivity = processing.Emissivity.ToString("F2", culture);
+        var formattedDistance = processing.TargetDistanceM.HasValue
+            ? FormatNullable(processing.TargetDistanceM, "m", culture)
+            : FormatNullable(metadata.ObjectDistanceM, "m", culture);
+        var formattedAmbient = processing.AmbientTemperatureC.HasValue
+            ? FormatNullable(processing.AmbientTemperatureC, "°C", culture)
+            : FormatNullable(metadata.AmbientTemperatureC, "°C", culture);
+        var formattedHumidity = processing.RelativeHumidityRh.HasValue
+            ? FormatNullable(processing.RelativeHumidityRh, "%", culture)
+            : FormatNullable(metadata.RelativeHumidity, "%", culture);
 
-        var hasAdmissibleReference = processing.MaxAdmissibleC.HasValue && processing.MaxAdmissibleC.Value > 0;
-        var measurementColumnMarkup = hasAdmissibleReference
-            ? """
-                <colgroup>
-                    <col style="width: 12%;">
-                    <col style="width: 16%;">
-                    <col style="width: 24%;">
-                    <col style="width: 16%;">
-                    <col style="width: 14%;">
-                    <col style="width: 18%;">
-                </colgroup>
-            """
-            : """
-                <colgroup>
-                    <col style="width: 14%;">
-                    <col style="width: 18%;">
-                    <col style="width: 68%;">
-                </colgroup>
-            """;
-        var sectionMeasurementsSimplified = BuildMeasurementRows(section.Measurements, processing.MaxAdmissibleC, ptBr, hasAdmissibleReference);
+        var formattedLevelRange = FormatRange(
+            metadata.PaletteScaleMinC ?? processing.LevelMinC,
+            metadata.PaletteScaleMaxC ?? processing.LevelMaxC,
+            culture);
 
-        return $"""
-        <section class="report-section{(isLast ? string.Empty : " page-break")}">
-            <div class="section-header">
-                <div class="red-bar"></div>
-                <div class="section-title">REGISTROS FOTOGRÁFICOS - TERMOGRAMA {index}</div>
+        var sectionTitle = $"REGISTROS FOTOGRÁFICOS - TERMOGRAMA {sectionIndex}";
+
+        var spotRowsBuilder = new StringBuilder();
+        var spotMeasurements = section.Measurements.Where(m => m.Type == MeasurementType.Spot).ToList();
+        if (spotMeasurements.Count > 0)
+        {
+            for (var i = 0; i < spotMeasurements.Count; i++)
+            {
+                var spot = spotMeasurements[i];
+                var tspotValue = spot.Tmax.ToString("F1", culture);
+                var tmaxAdCell = spot.MaxAdmissibleC.HasValue && spot.MaxAdmissibleC.Value > 0
+                    ? spot.MaxAdmissibleC.Value.ToString("F1", culture)
+                    : string.Empty;
+                var margemCell = spot.MaxAdmissibleC.HasValue && spot.MaxAdmissibleC.Value > 0
+                    ? (spot.MaxAdmissibleC.Value - spot.Tmax).ToString("F1", culture)
+                    : string.Empty;
+
+                spotRowsBuilder.AppendLine(
+                    $"<tr><td class=\"spot-name\">Spot {i + 1}</td><td>{WebUtility.HtmlEncode(tspotValue)}</td><td>{WebUtility.HtmlEncode(tmaxAdCell)}</td><td>{WebUtility.HtmlEncode(margemCell)}</td></tr>");
+            }
+        }
+        else
+        {
+            spotRowsBuilder.AppendLine("<tr><td colspan=\"4\" style=\"text-align:center;color:#888;padding:6px 4px;\">Sem medições de Spot</td></tr>");
+        }
+
+        var pageBreakClass = isLast ? string.Empty : " thermogram-page-break";
+
+        return $@"
+<div class=""thermogram-page{pageBreakClass}"">
+    <div class=""section-header"">
+        <div class=""red-bar""></div>
+        <div class=""section-title"">{SafeEncode(sectionTitle)}</div>
+    </div>
+
+    <div class=""image-grid"">
+        <div class=""img-box"">
+            <div class=""img-frame"">{thermalMarkup}</div>
+            <div class=""img-footer"">Imagem Térmica (IR)</div>
+        </div>
+        <div class=""img-box"">
+            <div class=""img-frame"">{visibleMarkup}</div>
+            <div class=""img-footer"">Imagem Visual (Luz Visível)</div>
+        </div>
+    </div>
+
+    <div class=""section-header"">
+        <div class=""red-bar""></div>
+        <div class=""section-title"">PARÂMETROS TÉCNICOS E MEDIÇÕES</div>
+    </div>
+
+    <div class=""metrics-grid"">
+        <div class=""info-card"">
+            <div class=""card-title"">PARÂMETROS DE INSPEÇÃO</div>
+            <div class=""params-list"">
+                <div class=""param-row""><span class=""param-label"">Criticidade</span><span class=""param-value"">{SafeEncode(criticality)}</span></div>
+                <div class=""param-row""><span class=""param-label"">Câmera</span><span class=""param-value"">{SafeEncode(cameraModel)}</span></div>
+                <div class=""param-row""><span class=""param-label"">Emissividade</span><span class=""param-value"">{SafeEncode(formattedEmissivity)}</span></div>
+                <div class=""param-row""><span class=""param-label"">Localização</span><span class=""param-value"">{SafeEncode(section.Thermogram.EquipmentLocation)}</span></div>
+                <div class=""param-row""><span class=""param-label"">Escala Visual</span><span class=""param-value"">{SafeEncode(formattedLevelRange)}</span></div>
+                <div class=""param-row""><span class=""param-label"">Distância (m)</span><span class=""param-value"">{SafeEncode(formattedDistance)}</span></div>
+                <div class=""param-row""><span class=""param-label"">T. Ambiente (°C)</span><span class=""param-value"">{SafeEncode(formattedAmbient)}</span></div>
+                <div class=""param-row""><span class=""param-label"">Umidade RH (%)</span><span class=""param-value"">{SafeEncode(formattedHumidity)}</span></div>
             </div>
-            <table class="image-table" style="width: 100%; border-collapse: separate; border-spacing: 10px 0; table-layout: fixed; margin-bottom: 20px;">
-                <tr>
-                    <td style="width: 50%; vertical-align: top; border: 1px solid #000; padding: 0;">
-                        <div style="height: 220px; background: #000; text-align: center; vertical-align: middle; line-height: 220px;">
-                            {thermalMarkup}
-                        </div>
-                        <div class="img-footer">Imagem Térmica (IR)</div>
-                    </td>
-                    <td style="width: 50%; vertical-align: top; border: 1px solid #000; padding: 0;">
-                        <div style="height: 220px; background: #000; text-align: center; vertical-align: middle; line-height: 220px;">
-                            {visibleMarkup}
-                        </div>
-                        <div class="img-footer">Imagem Visual (Luz Visível)</div>
-                    </td>
-                </tr>
-            </table>
+        </div>
 
-            <div class="section-header">
-                <div class="red-bar"></div>
-                <div class="section-title">PARÂMETROS TÉCNICOS E MEDIÇÕES</div>
-            </div>
-
-            <table class="data-table">
-                <tr>
-                    <td class="label">Tag equipamento:</td>
-                    <td>{WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(section.Thermogram.EquipmentTag) ? "-" : section.Thermogram.EquipmentTag)}</td>
-                    <td class="label">Criticidade:</td>
-                    <td>
-                        <div class="checkbox-area">
-                            {criticalityMarkup}
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td class="label">Emissividade:</td>
-                    <td>{formattedEmissivity}</td>
-                    <td class="label">Tmax admissível:</td>
-                    <td>{formattedMaxAdmissible}</td>
-                </tr>
-                <tr>
-                    <td class="label">Tmin global:</td>
-                    <td>{formattedGlobalTmin}</td>
-                    <td class="label">Tmax global:</td>
-                    <td>{formattedGlobalTmax}</td>
-                </tr>
-                <tr>
-                    <td class="label">ΔT global:</td>
-                    <td>{formattedDeltaGlobal}</td>
-                    <td class="label">Captura:</td>
-                    <td>{WebUtility.HtmlEncode(formattedCaptureAt)}</td>
-                </tr>
-                <tr>
-                    <td class="label">Câmera:</td>
-                    <td>{WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(cameraModel) ? "-" : cameraModel)}</td>
-                    <td class="label">Localização:</td>
-                    <td>{WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(section.Thermogram.EquipmentLocation) ? "-" : section.Thermogram.EquipmentLocation)}</td>
-                </tr>
-                <tr>
-                    <td class="label">Escala visual:</td>
-                    <td>{formattedLevelRange}</td>
-                    <td class="label">Distância:</td>
-                    <td>{formattedDistance}</td>
-                </tr>
-                <tr>
-                    <td class="label">T. ambiente:</td>
-                    <td>{formattedAmbient}</td>
-                    <td class="label">T. refletida:</td>
-                    <td>{formattedReflected}</td>
-                </tr>
-                <tr>
-                    <td class="label">Umidade:</td>
-                    <td>{formattedHumidity}</td>
-                    <td class="label">Imagem visual:</td>
-                    <td>{WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(visiblePath) ? "Não vinculada" : "Vinculada")}</td>
-                </tr>
-            </table>
-
-            <table class="measurement-table">
-                {measurementColumnMarkup}
+        <div class=""info-card"">
+            <div class=""card-title"">MEDIÇÕES PONTUAIS (SPOTS)</div>
+            <table class=""measurements-table"">
+                <colgroup>
+                    <col style=""width: 20%"">
+                    <col style=""width: 26%"">
+                    <col style=""width: 27%"">
+                    <col style=""width: 27%"">
+                </colgroup>
                 <thead>
                     <tr>
-                        <th>Spot</th>
+                        <th>Ident.</th>
                         <th>Tspot (°C)</th>
-                        {(hasAdmissibleReference
-                            ? "<th>Tmax admissível (°C)</th><th>Margem (°C)</th><th>Utilização</th><th>Status</th>"
-                            : "<th>Referência</th>")}
+                        <th>Tmáx Adm (°C)</th>
+                        <th>Margem (°C)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {sectionMeasurementsSimplified}
+                    {spotRowsBuilder}
                 </tbody>
             </table>
-            <div class="measurement-note">
-                <strong>Margem (°C):</strong> diferença entre o Tmax admissível e o Tspot (Margem = Tmax admissível - Tspot).<br>
-                <strong>Utilização:</strong> percentual de uso do limite (Utilização = Tspot / Tmax admissível × 100).
-            </div>
+            <div class=""measurement-note"">📐 Margem = Tmax Admissível - Tspot. Baseado na emissividade.</div>
+        </div>
+    </div>
 
-            <div class="section-header">
-                <div class="red-bar"></div>
-                <div class="section-title">OBSERVAÇÕES E RECOMENDAÇÕES</div>
-            </div>
+    <div class=""section-header"">
+        <div class=""red-bar""></div>
+        <div class=""section-title"">OBSERVAÇÕES E RECOMENDAÇÕES</div>
+    </div>
 
-            <table>
-                <tr><td class="label">Observações:</td></tr>
-                <tr><td class="text-area">{WebUtility.HtmlEncode(section.Observations)}</td></tr>
-                <tr><td class="label">Ação Recomendada:</td></tr>
-                <tr><td class="text-area">{WebUtility.HtmlEncode(section.Recommendation)}</td></tr>
-            </table>
-        </section>
-        """;
+    <table class=""report-meta-table"">
+        <colgroup>
+            <col style=""width: 22%"">
+            <col style=""width: 78%"">
+        </colgroup>
+        <tr>
+            <td class=""label"">Observações:</td>
+            <td class=""text-area"">{SafeEncode(section.Observations)}</td>
+        </tr>
+        <tr>
+            <td class=""label"">Ação Recomendada:</td>
+            <td class=""text-area"">{SafeEncode(section.Recommendation)}</td>
+        </tr>
+    </table>
+</div>";
     }
+
+    private static string GetProductVersionLabel()
+    {
+        var version = Assembly.GetEntryAssembly()?.GetName().Version
+                      ?? Assembly.GetExecutingAssembly().GetName().Version;
+
+        if (version is null)
+        {
+            return "Thermix Studio v 2.0";
+        }
+
+        return $"Thermix Studio v {version.Major}.{Math.Max(0, version.Minor)}";
+    }
+
+    private static string ReplaceThermogramPlaceholders(string html, ReportSectionRequest section, int sectionIndex, CultureInfo culture)
+    {
+        var processing = ExtractProcessingState(section.Thermogram.ProcessingJson);
+        var metadata = ExtractMetadata(section.Thermogram.MetadataJson);
+        var visiblePath = ResolveVisiblePath(section.Thermogram);
+        var thermalImagePath = string.IsNullOrWhiteSpace(section.AnnotatedThermalImagePath)
+            ? section.Thermogram.FilePath
+            : section.AnnotatedThermalImagePath;
+
+        var thermalMarkup = BuildImageMarkup(thermalImagePath, "Termograma", "Imagem térmica não vinculada.");
+        var visibleMarkup = BuildImageMarkup(visiblePath, "Foto Visual", "Imagem visual não vinculada.");
+
+        var cameraModel = string.IsNullOrWhiteSpace(metadata.CameraModel) || metadata.CameraModel == "Unknown"
+            ? section.Thermogram.CameraModel
+            : metadata.CameraModel;
+
+        var criticality = BuildCriticalityLabel(section.Thermogram.Criticality);
+        var formattedEmissivity = processing.Emissivity.ToString("F2", culture);
+
+        // Distance: prefer user-entered value, then EXIF metadata
+        var formattedDistance = processing.TargetDistanceM.HasValue
+            ? FormatNullable(processing.TargetDistanceM, "m", culture)
+            : FormatNullable(metadata.ObjectDistanceM, "m", culture);
+
+        // Ambient temperature and humidity: prefer user-entered values, then EXIF metadata
+        var formattedAmbient = processing.AmbientTemperatureC.HasValue
+            ? FormatNullable(processing.AmbientTemperatureC, "°C", culture)
+            : FormatNullable(metadata.AmbientTemperatureC, "°C", culture);
+        var formattedHumidity = processing.RelativeHumidityRh.HasValue
+            ? FormatNullable(processing.RelativeHumidityRh, "%", culture)
+            : FormatNullable(metadata.RelativeHumidity, "%", culture);
+
+        var formattedLevelRange = FormatRange(
+            metadata.PaletteScaleMinC ?? processing.LevelMinC,
+            metadata.PaletteScaleMaxC ?? processing.LevelMaxC,
+            culture);
+
+        // Section title: base title + optional description suffix
+        var baseTitle = $"REGISTROS FOTOGRÁFICOS - TERMOGRAMA {sectionIndex}";
+        var sectionTitle = string.IsNullOrWhiteSpace(section.Thermogram.EquipmentDescription)
+            ? baseTitle
+            : $"{baseTitle} | {section.Thermogram.EquipmentDescription}";
+
+        html = html
+            .Replace($"{{{{SECTION_TITLE_{sectionIndex}}}}}", SafeEncode(sectionTitle))
+            .Replace($"{{{{IMAGEM_TERMICA_{sectionIndex}}}}}", thermalMarkup)
+            .Replace($"{{{{IMAGEM_VISUAL_{sectionIndex}}}}}", visibleMarkup)
+            .Replace($"{{{{CRITICIDADE_{sectionIndex}}}}}", criticality)
+            .Replace($"{{{{CAMERA_{sectionIndex}}}}}", SafeEncode(cameraModel))
+            .Replace($"{{{{EMISSIVIDADE_{sectionIndex}}}}}", SafeEncode(formattedEmissivity))
+            .Replace($"{{{{LOCALIZACAO_{sectionIndex}}}}}", SafeEncode(section.Thermogram.EquipmentLocation))
+            .Replace($"{{{{ESCALA_VISUAL_{sectionIndex}}}}}", SafeEncode(formattedLevelRange))
+            .Replace($"{{{{DISTANCIA_{sectionIndex}}}}}", SafeEncode(formattedDistance))
+            .Replace($"{{{{TEMP_AMBIENTE_{sectionIndex}}}}}", SafeEncode(formattedAmbient))
+            .Replace($"{{{{UMIDADE_{sectionIndex}}}}}", SafeEncode(formattedHumidity))
+            .Replace($"{{{{OBSERVACOES_{sectionIndex}}}}}", SafeEncode(section.Observations))
+            .Replace($"{{{{ACAO_RECOMENDADA_{sectionIndex}}}}}", SafeEncode(section.Recommendation));
+
+        // Build dynamic spot rows — only existing spots, following rule:
+        // always show Spot + Tspot; show Tmax Adm. and Margem only when that spot has an admissible Tmax.
+        var spotMeasurements = section.Measurements.Where(m => m.Type == MeasurementType.Spot).ToList();
+        var spotRowsBuilder = new System.Text.StringBuilder();
+        if (spotMeasurements.Count > 0)
+        {
+            for (var i = 0; i < spotMeasurements.Count; i++)
+            {
+                var spot = spotMeasurements[i];
+                var tspotValue = spot.Tmax.ToString("F1", culture);
+                var tmaxAdCell = spot.MaxAdmissibleC.HasValue && spot.MaxAdmissibleC.Value > 0
+                    ? spot.MaxAdmissibleC.Value.ToString("F1", culture)
+                    : string.Empty;
+                var margemCell = spot.MaxAdmissibleC.HasValue && spot.MaxAdmissibleC.Value > 0
+                    ? (spot.MaxAdmissibleC.Value - spot.Tmax).ToString("F1", culture)
+                    : string.Empty;
+                spotRowsBuilder.AppendLine(
+                    $"<tr><td class=\"spot-name\">Spot {i + 1}</td>" +
+                    $"<td>{WebUtility.HtmlEncode(tspotValue)}</td>" +
+                    $"<td>{WebUtility.HtmlEncode(tmaxAdCell)}</td>" +
+                    $"<td>{WebUtility.HtmlEncode(margemCell)}</td></tr>");
+            }
+        }
+        else
+        {
+            spotRowsBuilder.AppendLine(
+                "<tr><td colspan=\"4\" style=\"text-align:center;color:#888;padding:6px 4px;\">Sem medições de Spot</td></tr>");
+        }
+
+        html = html.Replace($"{{{{SPOTS_{sectionIndex}_ROWS}}}}", spotRowsBuilder.ToString());
+
+        return html;
+    }
+
+    private static string RemoveUnusedThermogramSections(string html, int usedSectionCount)
+    {
+        // Remover seções não utilizadas (mantém apenas as necessárias)
+        var regex = new System.Text.RegularExpressions.Regex($@"<!-- Repita a seção.*?(?=<div class=""footer"">|$)", System.Text.RegularExpressions.RegexOptions.Singleline);
+        html = regex.Replace(html, string.Empty);
+        return html;
+    }
+
+    private static string BuildCriticalityLabel(EquipmentCriticality criticality)
+    {
+        return criticality switch
+        {
+            EquipmentCriticality.Low => "Baixa",
+            EquipmentCriticality.Medium => "Média",
+            EquipmentCriticality.High => "Alta",
+            EquipmentCriticality.Critical => "Crítica",
+            _ => "-"
+        };
+    }
+
+    private static string SafeEncode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+        return WebUtility.HtmlEncode(value.Trim());
+    }
+
 
     private static string BuildCriticalityMarkup(EquipmentCriticality criticality)
     {
@@ -483,95 +591,14 @@ public sealed class ReportService : IReportService
             var imageDataUri = ToBase64DataUri(sourcePath);
             if (!string.IsNullOrWhiteSpace(imageDataUri))
             {
-                return $"<img src=\"{imageDataUri}\" style=\"display: inline-block; width: 100%; height: 220px; object-fit: contain; object-position: center; vertical-align: middle; background: #000; line-height: normal;\" alt=\"{WebUtility.HtmlEncode(alt)}\">";
+                return $"<img src=\"{imageDataUri}\" style=\"display:block; width:100%; height:100%; object-fit:contain; object-position:center;\" alt=\"{WebUtility.HtmlEncode(alt)}\">";
             }
         }
 
-        return $"<div class=\"img-placeholder\" style=\"height: 220px; line-height: 220px; color: #666; font-size: 10pt; background: #1a1a1a;\">{WebUtility.HtmlEncode(placeholderText)}</div>";
+        return $"<div class=\"img-placeholder\" style=\"height: 260px; line-height: 260px; color: #666; font-size: 10pt; background: #1a1a1a;\">{WebUtility.HtmlEncode(placeholderText)}</div>";
     }
 
-    private static string BuildMeasurementRows(IReadOnlyList<ThermalMeasurement> measurements, double? maxAdmissibleC, CultureInfo culture, bool hasAdmissibleReference)
-    {
-        // Filtrar apenas Spots - a única ferramenta de medição
-        var spotMeasurements = measurements.Where(m => m.Type == MeasurementType.Spot).ToList();
 
-        if (spotMeasurements.Count == 0)
-        {
-            var colspan = hasAdmissibleReference ? 6 : 3;
-            return $"<tr><td colspan=\"{colspan}\" class=\"measurement-empty\">Sem medições de Spot cadastradas para este termograma.</td></tr>";
-        }
-
-        var rows = new StringBuilder();
-        var spotCounter = 0;
-        var formattedAdmissible = maxAdmissibleC.HasValue
-            ? maxAdmissibleC.Value.ToString("F1", culture) + " °C"
-            : "-";
-
-        foreach (var measurement in spotMeasurements)
-        {
-            spotCounter++;
-            var measurementName = $"Spot {spotCounter}";
-            var spotValue = measurement.Tmax;
-            var formattedSpotValue = spotValue.ToString("F1", culture) + " °C";
-
-            if (!hasAdmissibleReference)
-            {
-                rows.Append($"<tr><td>{WebUtility.HtmlEncode(measurementName)}</td><td>{formattedSpotValue}</td><td>Defina Tmax admissível na análise</td></tr>");
-                continue;
-            }
-
-            var formattedMargin = "-";
-            var formattedUtilization = "-";
-            var status = "Sem referência";
-
-            if (maxAdmissibleC.HasValue && maxAdmissibleC.Value > 0)
-            {
-                var margin = maxAdmissibleC.Value - spotValue;
-                var utilization = (spotValue / maxAdmissibleC.Value) * 100d;
-                formattedMargin = margin.ToString("F1", culture) + " °C";
-                formattedUtilization = utilization.ToString("F1", culture) + " %";
-
-                status = utilization switch
-                {
-                    >= 100d => "Acima do limite",
-                    >= 90d => "Atenção",
-                    _ => "Normal"
-                };
-            }
-
-            rows.Append($"<tr><td>{WebUtility.HtmlEncode(measurementName)}</td><td>{formattedSpotValue}</td><td>{formattedAdmissible}</td><td>{formattedMargin}</td><td>{formattedUtilization}</td><td>{status}</td></tr>");
-        }
-
-        return rows.ToString();
-    }
-
-    private static string NormalizeMeasurementNote(ThermalMeasurement measurement, string measurementName)
-    {
-        var rawNote = measurement.Notes?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(rawNote))
-        {
-            return measurement.Type switch
-            {
-                MeasurementType.Spot => $"Leitura pontual registrada em {measurementName}.",
-                MeasurementType.Area => $"Estatística de área registrada em {measurementName}.",
-                MeasurementType.Line => $"Perfil térmico de linha registrado em {measurementName}.",
-                _ => $"Medição registrada em {measurementName}."
-            };
-        }
-
-        if (rawNote.Contains("manual no canvas", StringComparison.OrdinalIgnoreCase))
-        {
-            return measurement.Type switch
-            {
-                MeasurementType.Spot => $"Leitura pontual manual ({measurementName}).",
-                MeasurementType.Area => $"Região manual delimitada ({measurementName}).",
-                MeasurementType.Line => $"Linha manual de perfil térmico ({measurementName}).",
-                _ => $"Medição manual registrada ({measurementName})."
-            };
-        }
-
-        return rawNote;
-    }
 
     private static string FormatNullable(double? value, string unit, CultureInfo culture)
     {

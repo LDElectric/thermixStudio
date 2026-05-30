@@ -5,4 +5,7 @@
     <Project Path="src/ThermixStudio.Infrastructure/ThermixStudio.Infrastructure.csproj" />
     <Project Path="src/ThermixStudio.Reports/ThermixStudio.Reports.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ThermixStudio.RenderingChecks/ThermixStudio.RenderingChecks.csproj" />
+  </Folder>
 </Solution>

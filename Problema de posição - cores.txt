@@ -1,0 +1,31 @@
+veja agora em MSX.
+
+1MSX.jpg é a imagem original
+
+1MSX_exportado.jpg é o render do meu programa
+
+Note os detalhes importantes:
+
+na original a prancheta presa a parede está toda em um tom de azul escuro, completa.
+
+no meu render, a pracheta sai mais do lugar, ficando uma parte no roxo/laranja.
+
+
+
+Na original apenas o carregador está em amarelo e a silhueta da tomada está em tons alaranjados com roxo.
+
+no meu render o carregador e a tomada estão amarelos.
+
+
+
+Na original o cabo do carregador tem cores mais frias chegando a tons mais ecuros na parte inferior.
+
+no meu render o cabo parece ter uma sombra.
+
+
+
+Nesse modo MSX eu percebo que há um deslocamento na imagem, não está bem posicionada com as cores da matriz termica.
+
+
+
+como resolvemos issto?

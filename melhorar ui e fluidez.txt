@@ -1,0 +1,14 @@
+Precisamos melhorar as funcionalidades da area de imagem.
+Sobre os sliders
+Eles precisam ter mones/titulos para indicar o que cada um faz
+Eles precisam ser mais responsivos e não ser lento ao mover eles.
+os slider podem ser menores e mais minimalistas.
+
+Sobre o botão camera
+O botão "Camera" eu não sei ao certo o que ele faz, não sei qual é sua utilidade ali. preciso entender pra saber o que fazer com ele.
+
+Precisamos melhorar a fluidez do programa
+O carregamento de imagem é lento, será que o processo pode ser melhorado?
+A alternancia entre os termogramas da biblioteca é lenta, será que esse processo pode ser melhorado?
+
+organize um plano para isto, começando pelo ajutes da area de imagem para melhor UI/UX
