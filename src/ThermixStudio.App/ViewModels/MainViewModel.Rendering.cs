@@ -713,42 +713,27 @@ public sealed partial class MainViewModel
             metadata.Manufacturer.Contains("FLIR", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Temperatura no pixel exato da mira (centro do retículo).
+    /// Usa mediana 3×3 para suavizar ruído sem distorcer o valor.
+    /// </summary>
     private static double? GetFlirReticleSpotTemperature(ThermalImageData image, double centerX, double centerY)
     {
-        var sx = image.Width / 320.0;
-        var sy = image.Height / 240.0;
-        var xRadius = Math.Max(6, (int)Math.Round(20 * sx));
-        var yRadius = Math.Max(6, (int)Math.Round(17 * sy));
-        var x1 = Math.Clamp((int)Math.Round(centerX) - xRadius, 0, image.Width - 1);
-        var x2 = Math.Clamp((int)Math.Round(centerX) + xRadius, 0, image.Width - 1);
-        var y1 = Math.Clamp((int)Math.Round(centerY) - yRadius, 0, image.Height - 1);
-        var y2 = Math.Clamp((int)Math.Round(centerY) + yRadius, 0, image.Height - 1);
-        if (x2 < x1 || y2 < y1)
-        {
-            return null;
-        }
+        int cx = Math.Clamp((int)Math.Round(centerX), 0, image.Width - 1);
+        int cy = Math.Clamp((int)Math.Round(centerY), 0, image.Height - 1);
 
-        var values = new List<double>((x2 - x1 + 1) * (y2 - y1 + 1));
-        for (var y = y1; y <= y2; y++)
-        {
-            for (var x = x1; x <= x2; x++)
+        // Mediana 3×3 para reduzir ruído do sensor
+        var values = new List<double>(9);
+        for (int y = Math.Max(0, cy - 1); y <= Math.Min(image.Height - 1, cy + 1); y++)
+            for (int x = Math.Max(0, cx - 1); x <= Math.Min(image.Width - 1, cx + 1); x++)
             {
-                var value = image.Temperatures[y, x];
-                if (double.IsFinite(value))
-                {
-                    values.Add(value);
-                }
+                var v = image.Temperatures[y, x];
+                if (double.IsFinite(v)) values.Add(v);
             }
-        }
 
-        if (values.Count == 0)
-        {
-            return null;
-        }
-
+        if (values.Count == 0) return null;
         values.Sort();
-        var index = Math.Clamp((int)Math.Round((values.Count - 1) * 0.956), 0, values.Count - 1);
-        return values[index];
+        return values[values.Count / 2]; // mediana
     }
 
     private static bool TryDetectFlirReticleCenter(byte[]? originalPixels, int width, int height, out double centerX, out double centerY)
