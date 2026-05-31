@@ -1,0 +1,98 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ThermixStudio.Core\ThermixStudio.Core.csproj" />
+    <ProjectReference Include="..\ThermixStudio.Infrastructure\ThermixStudio.Infrastructure.csproj" />
+    <ProjectReference Include="..\ThermixStudio.Reports\ThermixStudio.Reports.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="MetadataExtractor" Version="2.9.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260427" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260302" />
+    <PackageReference Include="OxyPlot.Wpf" Version="2.2.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\icone_windows.ico"
+                      Link="icone_windows.ico"
+                      LogicalName="ThermixStudio.App.icone_windows" />
+      <EmbeddedResource Include="..\..\.venv\Lib\site-packages\dji_executables\dji_thermal_sdk_v1.7\exiftool-12.35.exe"
+        Condition="Exists('..\..\.venv\Lib\site-packages\dji_executables\dji_thermal_sdk_v1.7\exiftool-12.35.exe')"
+        Link="tools\exiftool.exe"
+        LogicalName="ThermixStudio.App.Embedded.exiftool.exe" />
+      <EmbeddedResource Include="docs\manual-instrucoes.html"
+        LogicalName="ThermixStudio.App.Embedded.manual-instrucoes.html" />
+      <None Include="templates\relatorio termografico.html"
+        Link="templates\relatorio termografico.html"
+        CopyToOutputDirectory="PreserveNewest"
+        CopyToPublishDirectory="Never" />
+      <None Include="docs\manual-instrucoes.html"
+        Link="docs\manual-instrucoes.html"
+        CopyToOutputDirectory="PreserveNewest"
+        CopyToPublishDirectory="Never" />
+      <Content Include="paletas\*_lut.json"
+        CopyToOutputDirectory="Always"
+        CopyToPublishDirectory="PreserveNewest" />
+      <EmbeddedResource Include="..\..\flir_logo.png"
+        Link="flir_logo.png"
+        LogicalName="ThermixStudio.App.flir_logo.png" />
+      <None Include="paletas\*_lut.csv"
+        Condition="Exists('paletas')"
+        CopyToOutputDirectory="PreserveNewest"
+        CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ApplicationIcon>..\..\icone_windows.ico</ApplicationIcon>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Version>2.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <FileVersion>2.0.0.0</FileVersion>
+    
+    <!-- Executável portátil compacto -->
+    <PublishDir>..\..\publish</PublishDir>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+  <!-- Executável portátil: suprimir arquivos soltos desnecessários -->
+  <Target Name="SuppressLooseFilesFromPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <!-- Fontes Lato do QuestPDF: já embutidas na DLL do QuestPDF 2022.12+ -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('LatoFont'))" />
+      <!-- Documentação XML do WebView2: não é necessária em runtime -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="$([System.String]::Copy('%(ResolvedFileToPublish.Filename)').StartsWith('Microsoft.Web.WebView2'))" />
+      <!-- Arquivos PDB de símbolos: desnecessários no executável de release -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Target removido: o ícone deve estar EMBUTIDO no executável via ApplicationIcon, não copiado -->
+  <!-- Também suprimir o arquivo .ico da pasta de publish -->
+  <Target Name="RemoveIconFromPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Filename)' == 'icone_windows'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

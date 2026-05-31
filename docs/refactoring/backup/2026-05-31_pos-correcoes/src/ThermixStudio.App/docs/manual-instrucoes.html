@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thermix Studio - Manual de Instruções</title>
+    <style>
+        :root {
+            --bg: #f4f6fa;
+            --card: #ffffff;
+            --text: #1f2430;
+            --muted: #4f5a70;
+            --accent: #ff6600;
+            --line: #d7dce7;
+            --ok: #15803d;
+            --warn: #b45309;
+            --info: #1d4ed8;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(180deg, #eef2f9 0%, var(--bg) 100%);
+            color: var(--text);
+            line-height: 1.55;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 24px auto;
+            padding: 0 16px 32px;
+        }
+
+        .hero {
+            background: radial-gradient(circle at top right, #ffd7bd 0%, #fff 45%, #fff 100%);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 22px;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 30px;
+            color: #d24f00;
+        }
+
+        h2 {
+            margin: 0 0 10px;
+            font-size: 22px;
+            color: #1f2430;
+        }
+
+        h3 {
+            margin: 0 0 8px;
+            font-size: 18px;
+            color: #24324f;
+        }
+
+        p {
+            margin: 0 0 10px;
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        ul, ol {
+            margin: 8px 0 0;
+            padding-left: 20px;
+        }
+
+        li {
+            margin: 4px 0;
+        }
+
+        .badge {
+            display: inline-block;
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            margin-right: 6px;
+            border: 1px solid transparent;
+        }
+
+        .badge-info {
+            background: #e8f0ff;
+            color: #1d4ed8;
+            border-color: #c7d7ff;
+        }
+
+        .badge-ok {
+            background: #e9f8ee;
+            color: var(--ok);
+            border-color: #bde7ca;
+        }
+
+        .badge-warn {
+            background: #fff4e7;
+            color: var(--warn);
+            border-color: #ffddb8;
+        }
+
+        .note {
+            border-left: 4px solid var(--info);
+            background: #eef4ff;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .warn {
+            border-left-color: var(--warn);
+            background: #fff8ee;
+        }
+
+        .kbd {
+            display: inline-block;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 12px;
+            border: 1px solid #cfd7e6;
+            border-bottom-width: 2px;
+            border-radius: 6px;
+            padding: 1px 6px;
+            background: #fff;
+        }
+
+        .footer {
+            text-align: center;
+            color: #6a7488;
+            font-size: 12px;
+            margin-top: 16px;
+        }
+
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <section class="hero">
+            <h1>Manual de Instruções - Thermix Studio</h1>
+            <p class="muted">Guia rápido e completo para operar as telas de análise e relatório.</p>
+            <div>
+                <span class="badge badge-info">Versão 2.x</span>
+                <span class="badge badge-ok">PT-BR</span>
+                <span class="badge badge-warn">Uso recomendado com imagens FLIR radiométricas</span>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>1) Visão Geral</h2>
+            <p>O Thermix Studio é dividido em duas frentes:</p>
+            <ul>
+                <li><strong>Análise:</strong> importação, visualização e tratamento dos termogramas.</li>
+                <li><strong>Editor de relatório:</strong> composição por seções e emissão de PDF com pré-visualização.</li>
+            </ul>
+            <div class="note">
+                <strong>Fluxo recomendado:</strong> importe o termograma, ajuste parâmetros, lance medições e só então abra o editor de relatório.
+            </div>
+        </section>
+
+        <div class="grid">
+            <section class="card">
+                <h2>2) Barra de Menu (tela principal)</h2>
+                <ul>
+                    <li><strong>Arquivo:</strong> abrir termograma e sair.</li>
+                    <li><strong>Editar:</strong> desfazer, remover medição selecionada e remover termograma.</li>
+                    <li><strong>Ferramentas:</strong> mão, medições, ilustrações e exportações CSV.</li>
+                    <li><strong>Relatório:</strong> abre o editor para geração do relatório técnico.</li>
+                    <li><strong>Ajuda:</strong> instruções e tela Sobre.</li>
+                </ul>
+            </section>
+
+            <section class="card">
+                <h2>3) Barra de Ferramentas</h2>
+                <ul>
+                    <li><strong>Abrir:</strong> importa um ou mais termogramas.</li>
+                    <li><strong>Ferramenta ativa:</strong> selecionada no combo de ferramentas.</li>
+                    <li><strong>ΔT:</strong> calcula diferença entre os 2 últimos spots.</li>
+                    <li><strong>Modo de imagem:</strong> MSX, Térmica (IV), Imagem na imagem, Combinação térmica e Câmera digital.</li>
+                    <li><strong>Desfazer:</strong> atalho para última ação de medição/ilustração.</li>
+                    <li><strong>Gerar Relatório:</strong> acesso rápido ao editor.</li>
+                </ul>
+            </section>
+        </div>
+
+        <div class="grid">
+            <section class="card">
+                <h2>4) Área de Análise</h2>
+                <h3>Painel esquerdo (biblioteca)</h3>
+                <ul>
+                    <li>Lista os termogramas importados da inspeção atual.</li>
+                    <li>Permite seleção e remoção de item por menu contextual.</li>
+                </ul>
+
+                <h3>Área central (imagem)</h3>
+                <ul>
+                    <li><strong>Zoom:</strong> roda do mouse.</li>
+                    <li><strong>Pan:</strong> modo Mão ou arraste com botão direito.</li>
+                    <li><strong>Medições/ilustrações:</strong> inseridas diretamente sobre a imagem.</li>
+                </ul>
+            </section>
+
+            <section class="card">
+                <h2>5) Painel de Propriedades</h2>
+                <ul>
+                    <li><strong>ARQUIVO:</strong> câmera e data de captura.</li>
+                    <li><strong>CÂMERA / CAPTURA:</strong> metadados EXIF (nº de série, data/hora EXIF, FOV e janela IR).</li>
+                    <li><strong>EQUIPAMENTO:</strong> tag/código, descrição, localização e criticidade.</li>
+                    <li><strong>TRATAMENTO TÉRMICO:</strong> auto scale, paleta, emissividade, distância, temperatura ambiente, umidade e limite admissível.</li>
+                    <li><strong>MEDIÇÕES:</strong> lista das medições do termograma selecionado.</li>
+                </ul>
+            </section>
+        </div>
+
+        <section class="card">
+            <h2>6) Ferramentas de Medição e Ilustração</h2>
+            <ul>
+                <li><strong>Spot:</strong> medição pontual de temperatura.</li>
+                <li><strong>Área:</strong> medição em região retangular.</li>
+                <li><strong>Linha:</strong> medição em perfil linear.</li>
+                <li><strong>Círculo:</strong> medição em região circular.</li>
+                <li><strong>Diferença (2 Spots):</strong> delta automático entre dois últimos spots.</li>
+                <li><strong>Ilustrações:</strong> seta, retângulo, elipse e texto para marcações visuais.</li>
+            </ul>
+            <div class="note">
+                <strong>Atalhos úteis:</strong> <span class="kbd">Ctrl + Z</span> desfaz, <span class="kbd">Del</span> remove item selecionado.
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>7) Exportações CSV</h2>
+            <ul>
+                <li><strong>Exportar CSV da imagem:</strong> matriz térmica processada.</li>
+                <li><strong>Exportar CSV de medições:</strong> tabela com medições cadastradas no termograma.</li>
+            </ul>
+        </section>
+
+        <div class="grid">
+            <section class="card">
+                <h2>8) Editor de Relatório</h2>
+                <ul>
+                    <li><strong>Dados do relatório:</strong> OS, instalação, equipamento, termografista, certificação e data.</li>
+                    <li><strong>Biblioteca de termogramas:</strong> adiciona termograma selecionado ao relatório.</li>
+                    <li><strong>Seções editáveis:</strong> cada termograma vira uma seção independente.</li>
+                    <li><strong>Seção selecionada:</strong> observações e recomendação por seção.</li>
+                    <li><strong>Pré-visualização:</strong> renderização HTML em tempo real no painel direito.</li>
+                </ul>
+            </section>
+
+            <section class="card">
+                <h2>9) Emissão do Relatório</h2>
+                <ul>
+                    <li><strong>Baixar PDF:</strong> salva apenas o PDF no caminho escolhido.</li>
+                    <li><strong>Gerar Relatório:</strong> finaliza a geração dos artefatos do relatório.</li>
+                    <li><strong>Rodapé automático:</strong> data/hora de geração e versão do Thermix Studio.</li>
+                </ul>
+                <div class="note warn">
+                    <strong>Boas práticas:</strong> revise a pré-visualização antes de emitir e confirme observações/recomendações de cada seção.
+                </div>
+            </section>
+        </div>
+
+        <section class="card">
+            <h2>10) Regras de dados no relatório</h2>
+            <ul>
+                <li><strong>Distância, temperatura ambiente e umidade:</strong> priorizam valor digitado no painel; na ausência, usam metadado do termograma.</li>
+                <li><strong>Escala visual:</strong> usa preferencialmente a escala gravada pela câmera no EXIF.</li>
+                <li><strong>Spots:</strong> o relatório mostra apenas spots existentes; não há linhas vazias fixas.</li>
+                <li><strong>Título da seção:</strong> pode incluir descrição do equipamento junto ao nome do termograma.</li>
+            </ul>
+        </section>
+
+        <p class="footer">Thermix Studio - Manual local de instruções</p>
+    </div>
+</body>
+</html>
