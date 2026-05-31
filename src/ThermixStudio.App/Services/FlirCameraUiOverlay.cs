@@ -731,10 +731,10 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             double sx = width / 320.0;
             double sy = height / 240.0;
 
-            // Dimensões calibradas contra FLIR E8xt (320×240): logo ~55×15px
-            int destX = (int)(4 * sx);
-            int destY = (int)(218 * sy);
-            int destW = Math.Max(1, (int)(55 * sx));
+            // Dimensões pixel-perfect medidas do FLIR0060 original
+            int destX = (int)(8 * sx);
+            int destY = (int)(220 * sy);
+            int destW = Math.Max(1, (int)(37 * sx));
             int destH = Math.Max(1, (int)(15 * sy));
 
             // Desenhar logo redimensionado
