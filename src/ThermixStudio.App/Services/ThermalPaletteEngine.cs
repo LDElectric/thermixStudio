@@ -243,12 +243,12 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         }
 
         // 2. Limitar picos do histograma (Plateau) para que fundos gigantes não esmaguem o contraste
-        // Usa 0.05% como padrão (mais próximo do comportamento FLIR); ajustável via PaletteStretch
+        // Base: 0.05% dos pixels. PaletteStretch da câmera atua como multiplicador:
+        //   stretch=1 → 0.025% | stretch=2 → 0.05% (normal) | stretch=4 → 0.10%
         double plateauFraction = 0.0005;
         if (metadata?.PaletteStretch.HasValue == true && metadata.PaletteStretch.Value > 0)
         {
-            // PaletteStretch da câmera: valores típicos 1-255, mapear para fração 0.01%-0.5%
-            plateauFraction = Math.Clamp(metadata.PaletteStretch.Value / 50000.0, 0.0001, 0.005);
+            plateauFraction = Math.Clamp(0.0005 * (metadata.PaletteStretch.Value / 2.0), 0.0001, 0.002);
         }
         int plateau = Math.Max(1, (int)(width * height * plateauFraction));
         double[] clippedHist = new double[numBins];
