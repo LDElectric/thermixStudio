@@ -149,6 +149,17 @@ public sealed partial class MainViewModel
 
         if (hasOriginal && originalPixels is not null)
         {
+            // Inferir prefixo do spot se não veio do EXIF
+            string? spotLabel = _loadedImage.Metadata.SpotLabel;
+            if (string.IsNullOrWhiteSpace(spotLabel) && spotTemperature.HasValue)
+            {
+                var (matrixMin, matrixMax) = GetDisplayedScaleRange(_loadedImage, displayScale.min, displayScale.max, AutoScaleEnabled);
+                if (Math.Abs(spotTemperature.Value - matrixMax) < 0.6)
+                    spotLabel = "Máx.";
+                else if (Math.Abs(spotTemperature.Value - matrixMin) < 0.6)
+                    spotLabel = "Min";
+            }
+
             finalPixels = _viewPipeline.OverlayCameraUI(
                 finalPixels,
                 originalPixels,
@@ -163,7 +174,7 @@ public sealed partial class MainViewModel
                 null,
                 spotIsApproximate,
                 false,
-                spotLabel: _loadedImage.Metadata.SpotLabel,
+                spotLabel: spotLabel,
                 spotNormX: _loadedImage.Metadata.SpotNormalizedX,
                 spotNormY: _loadedImage.Metadata.SpotNormalizedY);
         }

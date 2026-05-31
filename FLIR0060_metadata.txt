@@ -1,0 +1,143 @@
+====================================================================================================
+METADADOS DO TERMOGRAMA
+====================================================================================================
+
+Tag / Título                                            | Valor
+----------------------------------------------------------------------------------------------------
+Composite:FocalLength35efl                              | 6.5 mm
+Composite:ImageSize                                     | 320x240
+Composite:Megapixels                                    | 0.077
+ExifIFD:ColorSpace                                      | sRGB
+ExifIFD:ComponentsConfiguration                         | -, Cr, Cb, Y
+ExifIFD:CreateDate                                      | 2021:08:30 15:15:31
+ExifIFD:DateTimeOriginal                                | 2021:08:30 15:15:31
+ExifIFD:DigitalZoomRatio                                | 1
+ExifIFD:ExifImageHeight                                 | 240
+ExifIFD:ExifImageWidth                                  | 320
+ExifIFD:ExifVersion                                     | 0220
+ExifIFD:FlashpixVersion                                 | 0100
+ExifIFD:FocalLength                                     | 6.5 mm
+ExifIFD:ImageUniqueID                                   | 994EE585F9B54A010DAFD6002BC25CD9
+ExifIFD:SubjectDistance                                 | 1 m
+ExifTool:ExifToolVersion                                | 13.59
+ExifTool:Warning                                        | FileName encoding must be specified [x2]
+FLIR:AboveColor                                         | 170 128 128
+FLIR:AtmosphericTemperature                             | 20.0 C
+FLIR:AtmosphericTransAlpha1                             | 0.006569
+FLIR:AtmosphericTransAlpha2                             | 0.01262
+FLIR:AtmosphericTransBeta1                              | -0.002276
+FLIR:AtmosphericTransBeta2                              | -0.00667
+FLIR:AtmosphericTransX                                  | 1.9
+FLIR:BelowColor                                         | 50 128 128
+FLIR:CameraModel                                        | FLIR E8xt Wifi
+FLIR:CameraPartNumber                                   | 63908-0905
+FLIR:CameraSerialNumber                                 | 639107074
+FLIR:CameraSoftware                                     | 34.0.0
+FLIR:CameraTemperatureMaxClip                           | 280.0 C
+FLIR:CameraTemperatureMaxSaturated                      | 280.0 C
+FLIR:CameraTemperatureMaxWarn                           | 250.0 C
+FLIR:CameraTemperatureMinClip                           | -40.0 C
+FLIR:CameraTemperatureMinSaturated                      | -60.0 C
+FLIR:CameraTemperatureMinWarn                           | -20.0 C
+FLIR:CameraTemperatureRangeMax                          | 250.0 C
+FLIR:CameraTemperatureRangeMin                          | -20.0 C
+FLIR:CreatorSoftware                                    | 
+FLIR:DateTimeOriginal                                   | 2021:08:30 15:15:31.108+00:00
+FLIR:EmbeddedImage                                      | (Binary data 41711 bytes, use -b option to extract)
+FLIR:EmbeddedImageHeight                                | 480
+FLIR:EmbeddedImageType                                  | JPG
+FLIR:EmbeddedImageWidth                                 | 640
+FLIR:Emissivity                                         | 0.95
+FLIR:FLIR_0x0007                                        | 00000000000000000000000000000000
+FLIR:FLIR_0x0008                                        | 00000000000000000000000000000000
+FLIR:FLIR_0x0009                                        | X?0??C?S[...]
+FLIR:FLIR_0x000a                                        | 1
+FLIR:FLIR_0x0112                                        | 1
+FLIR:FieldOfView                                        | 45.0 deg
+FLIR:FilterModel                                        | 
+FLIR:FilterPartNumber                                   | 
+FLIR:FilterSerialNumber                                 | 
+FLIR:FocusDistance                                      | 0.0 m
+FLIR:FocusStepCount                                     | 103
+FLIR:FrameRate                                          | 9
+FLIR:IRWindowTemperature                                | 20.0 C
+FLIR:IRWindowTransmission                               | 1.0
+FLIR:ImageTemperatureMax                                | 379
+FLIR:ImageTemperatureMin                                | 312
+FLIR:Isotherm1Color                                     | 100 128 128
+FLIR:Isotherm2Color                                     | 100 110 240
+FLIR:LensModel                                          | FOL7
+FLIR:LensPartNumber                                     | 
+FLIR:LensSerialNumber                                   | 
+FLIR:ObjectDistance                                     | 1.00 m
+FLIR:OffsetX                                            | -6
+FLIR:OffsetY                                            | -2
+FLIR:OverflowColor                                      | 67 216 98
+FLIR:Palette                                            | (Binary data 672 bytes, use -b option to extract)
+FLIR:PaletteColors                                      | 224
+FLIR:PaletteFileName                                    | \FlashBFS\system\iron.pal
+FLIR:PaletteMethod                                      | 0
+FLIR:PaletteName                                        | Iron
+FLIR:PaletteStretch                                     | 2
+FLIR:PeakSpectralSensitivity                            | 10.7 um
+FLIR:PiPX1                                              | 0
+FLIR:PiPX2                                              | 320
+FLIR:PiPY1                                              | 0
+FLIR:PiPY2                                              | 240
+FLIR:PlanckB                                            | 1344.2
+FLIR:PlanckF                                            | 1.6
+FLIR:PlanckO                                            | -6855
+FLIR:PlanckR1                                           | 12429.322
+FLIR:PlanckR2                                           | 0.02511644
+FLIR:RawThermalImage                                    | (Binary data 77391 bytes, use -b option to extract)
+FLIR:RawThermalImageHeight                              | 240
+FLIR:RawThermalImageType                                | PNG
+FLIR:RawThermalImageWidth                               | 320
+FLIR:RawValueMedian                                     | 17416
+FLIR:RawValueRange                                      | 7672
+FLIR:RawValueRangeMax                                   | 57560
+FLIR:RawValueRangeMin                                   | 7761
+FLIR:Real2IR                                            | 1.28952181339264
+FLIR:ReflectedApparentTemperature                       | 20.0 C
+FLIR:RelativeHumidity                                   | 50.0 %
+FLIR:UnderflowColor                                     | 41 110 240
+FLIR:UnknownTemperature                                 | 450
+File:BitsPerSample                                      | 8
+File:ColorComponents                                    | 3
+File:EncodingProcess                                    | Baseline DCT, Huffman coding
+File:ExifByteOrder                                      | Little-endian (Intel, II)
+File:FileType                                           | JPEG
+File:FileTypeExtension                                  | jpg
+File:ImageHeight                                        | 240
+File:ImageWidth                                         | 320
+File:MIMEType                                           | image/jpeg
+File:YCbCrSubSampling                                   | YCbCr4:2:0 (2 2)
+IFD0:Make                                               | FLIR Systems AB
+IFD0:Model                                              | FLIR E8xt Wifi
+IFD0:ModifyDate                                         | 2021:08:30 15:15:31
+IFD0:Orientation                                        | Horizontal (normal)
+IFD0:ResolutionUnit                                     | inches
+IFD0:Software                                           | 3.16.0
+IFD0:XResolution                                        | 72
+IFD0:YCbCrPositioning                                   | Centered
+IFD0:YResolution                                        | 72
+IFD1:Compression                                        | JPEG (old-style)
+IFD1:Orientation                                        | Horizontal (normal)
+IFD1:ResolutionUnit                                     | inches
+IFD1:ThumbnailImage                                     | (Binary data 2562 bytes, use -b option to extract)
+IFD1:ThumbnailLength                                    | 2562
+IFD1:ThumbnailOffset                                    | 1884
+IFD1:XResolution                                        | 72
+IFD1:YResolution                                        | 72
+JFIF:JFIFVersion                                        | 1.01
+JFIF:ResolutionUnit                                     | None
+JFIF:XResolution                                        | 1
+JFIF:YResolution                                        | 1
+SourceFile                                              | C:/Users/Leonam Dias/Documents/Eng. El?trica - UNINASSAU/Estagio Supervisionado I/Termografia/Termogramas/FLIR0060.jpg
+System:Directory                                        | C:/Users/Leonam Dias/Documents/Eng. El?trica - UNINASSAU/Estagio Supervisionado I/Termografia/Termogramas
+System:FileAccessDate                                   | 2026:05:30 12:47:28-03:00
+System:FileCreateDate                                   | 2024:07:17 20:09:39-03:00
+System:FileModifyDate                                   | 2021:08:30 15:15:32-03:00
+System:FileName                                         | FLIR0060.jpg
+System:FilePermissions                                  | -rw-rw-rw-
+System:FileSize                                         | 153 kB

@@ -714,9 +714,8 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
     }
 
     /// <summary>
-    /// Preserva o logo FLIR copiando pixels claros de baixa saturação do original.
-    /// Usa thresholds relaxados (JPEG compression + anti-aliasing) e filtro
-    /// de componente conectado para eliminar ruído.
+    /// Preserva o logo FLIR usando máscara morfológica.
+    /// Só copia pixels do texto branco, nunca o fundo térmico.
     /// </summary>
     private static void OverlayFlirLogoOnly(byte[] result, byte[] originalPixels, int width, int height)
     {
@@ -724,93 +723,83 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         double sx = width / 320.0;
         double sy = height / 240.0;
 
-        // Região expandida para capturar variações de posição do logo
-        int x1 = Math.Clamp((int)(1 * sx), 0, width - 1);
-        int y1 = Math.Clamp((int)(212 * sy), 0, height - 1);
-        int x2 = Math.Clamp((int)(62 * sx), 0, width - 1);
-        int y2 = Math.Clamp((int)(237 * sy), 0, height - 1);
+        // Região do logo FLIR E8xt (calibrada)
+        int x1 = Math.Clamp((int)(3 * sx), 0, width - 1);
+        int y1 = Math.Clamp((int)(218 * sy), 0, height - 1);
+        int x2 = Math.Clamp((int)(30 * sx), 0, width - 1);
+        int y2 = Math.Clamp((int)(233 * sy), 0, height - 1);
         int logoW = x2 - x1 + 1;
         int logoH = y2 - y1 + 1;
 
-        // Thresholds específicos para logo (mais restritivos que UI genérica)
-        const int maxSaturation = 35;
-        const int minBrightness = 185;
-        const int minComponentSize = 4;
+        // Thresholds ultra-restritivos para texto branco FLIR
+        const int maxSat = 28;
+        const int minBright = 195;
 
-        // Passo 1: criar máscara binária dos pixels candidatos
+        // Passo 1: máscara binária
         var mask = new bool[logoW, logoH];
         for (int y = y1; y <= y2; y++)
-        {
             for (int x = x1; x <= x2; x++)
             {
                 int idx = (y * stride) + (x * 4);
-                byte ob = originalPixels[idx];
-                byte og = originalPixels[idx + 1];
-                byte or_ = originalPixels[idx + 2];
-                int maxC = Math.Max(or_, Math.Max(og, ob));
-                int minC = Math.Min(or_, Math.Min(og, ob));
+                int maxC = Math.Max(originalPixels[idx + 2], Math.Max(originalPixels[idx + 1], originalPixels[idx]));
+                int minC = Math.Min(originalPixels[idx + 2], Math.Min(originalPixels[idx + 1], originalPixels[idx]));
                 int sat = maxC - minC;
-                int bright = (or_ + og + ob) / 3;
-                mask[x - x1, y - y1] = sat <= maxSaturation && bright >= minBrightness;
+                int bright = (originalPixels[idx + 2] + originalPixels[idx + 1] + originalPixels[idx]) / 3;
+                mask[x - x1, y - y1] = sat <= maxSat && bright >= minBright;
             }
-        }
 
-        // Passo 2: connected-component filter (elimina pixels isolados)
-        var keep = new bool[logoW, logoH];
-        var visited = new bool[logoW, logoH];
-
+        // Passo 2: dilatação morfológica (1px) para capturar bordas anti-aliased
+        var dilated = new bool[logoW, logoH];
         for (int my = 0; my < logoH; my++)
-        {
             for (int mx = 0; mx < logoW; mx++)
             {
-                if (!mask[mx, my] || visited[mx, my]) continue;
+                if (!mask[mx, my]) continue;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int nx = mx + dx, ny = my + dy;
+                        if (nx >= 0 && nx < logoW && ny >= 0 && ny < logoH)
+                            dilated[nx, ny] = true;
+                    }
+            }
 
-                // BFS para medir tamanho do componente
-                var q = new Queue<(int, int)>();
+        // Passo 3: connected-component filter (mantém só componentes ≥ 3px)
+        var visited = new bool[logoW, logoH];
+        for (int my = 0; my < logoH; my++)
+            for (int mx = 0; mx < logoW; mx++)
+            {
+                if (!dilated[mx, my] || visited[mx, my]) continue;
                 var comp = new List<(int, int)>();
+                var q = new Queue<(int, int)>();
                 q.Enqueue((mx, my));
                 visited[mx, my] = true;
-
                 while (q.Count > 0)
                 {
                     var (cx, cy) = q.Dequeue();
                     comp.Add((cx, cy));
-
                     for (int dy = -1; dy <= 1; dy++)
                         for (int dx = -1; dx <= 1; dx++)
                         {
                             int nx = cx + dx, ny = cy + dy;
-                            if (nx >= 0 && nx < logoW && ny >= 0 && ny < logoH &&
-                                mask[nx, ny] && !visited[nx, ny])
-                            {
-                                visited[nx, ny] = true;
-                                q.Enqueue((nx, ny));
-                            }
+                            if (nx >= 0 && nx < logoW && ny >= 0 && ny < logoH && dilated[nx, ny] && !visited[nx, ny])
+                            { visited[nx, ny] = true; q.Enqueue((nx, ny)); }
                         }
                 }
-
-                // Só preserva componentes com tamanho mínimo
-                if (comp.Count >= minComponentSize)
-                {
-                    foreach (var (cx, cy) in comp)
-                        keep[cx, cy] = true;
-                }
+                if (comp.Count < 3)
+                    foreach (var (cx, cy) in comp) dilated[cx, cy] = false;
             }
-        }
 
-        // Passo 3: copiar pixels válidos do original
+        // Passo 4: copiar pixels do original onde a máscara está ativa
         for (int y = y1; y <= y2; y++)
-        {
             for (int x = x1; x <= x2; x++)
             {
-                if (!keep[x - x1, y - y1]) continue;
+                if (!dilated[x - x1, y - y1]) continue;
                 int idx = (y * stride) + (x * 4);
                 result[idx] = originalPixels[idx];
                 result[idx + 1] = originalPixels[idx + 1];
                 result[idx + 2] = originalPixels[idx + 2];
                 result[idx + 3] = originalPixels[idx + 3];
             }
-        }
     }
 
     private static void OverlayOriginalTemperatureTextBoxes(
