@@ -38,8 +38,8 @@
       <Content Include="paletas\*_lut.json"
         CopyToOutputDirectory="Always"
         CopyToPublishDirectory="PreserveNewest" />
-      <EmbeddedResource Include="..\..\flir logo.png"
-        Link="flir logo.png"
+      <EmbeddedResource Include="..\..\flir_logo.png"
+        Link="flir_logo.png"
         LogicalName="ThermixStudio.App.flir_logo.png" />
       <None Include="paletas\*_lut.csv"
         Condition="Exists('paletas')"

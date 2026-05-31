@@ -719,51 +719,52 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
     }
 
     /// <summary>
-    /// Preserva o logo FLIR sobrepondo PNG com transparência.
+    /// Preserva o logo FLIR sobrepondo PNG com transparência (EmbeddedResource).
     /// </summary>
     private static void OverlayFlirLogoOnly(byte[] result, byte[] originalPixels, int width, int height)
     {
         try
         {
-            using var logo = LoadFlirLogoPng();
+            var logo = LoadFlirLogoPng();
             if (logo is null) return;
 
             double sx = width / 320.0;
             double sy = height / 240.0;
-            int destX = (int)(3 * sx);
-            int destY = (int)(218 * sy);
-            int destW = (int)(28 * sx);
-            int destH = (int)(16 * sy);
-            if (destW < 1 || destH < 1) return;
 
+            // Dimensões calibradas contra FLIR E8xt (320×240): logo ~55×15px
+            int destX = (int)(4 * sx);
+            int destY = (int)(218 * sy);
+            int destW = Math.Max(1, (int)(55 * sx));
+            int destH = Math.Max(1, (int)(15 * sy));
+
+            // Desenhar logo redimensionado
+            using var scaledBmp = new Bitmap(destW, destH);
+            using var g = Graphics.FromImage(scaledBmp);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.DrawImage(logo, 0, 0, destW, destH);
+
+            // Alpha blending pixel a pixel
             int stride = width * 4;
             for (int dy = 0; dy < destH; dy++)
             {
-                int srcY = (int)((double)dy / destH * logo.Height);
-                if (srcY < 0 || srcY >= logo.Height) continue;
                 int destYPos = destY + dy;
                 if (destYPos < 0 || destYPos >= height) continue;
-
                 for (int dx = 0; dx < destW; dx++)
                 {
-                    int srcX = (int)((double)dx / destW * logo.Width);
-                    if (srcX < 0 || srcX >= logo.Width) continue;
                     int destXPos = destX + dx;
                     if (destXPos < 0 || destXPos >= width) continue;
-
-                    var sp = logo.GetPixel(srcX, srcY);
+                    var sp = scaledBmp.GetPixel(dx, dy);
                     if (sp.A < 10) continue;
-
                     int idx = (destYPos * stride) + (destXPos * 4);
-                    float alpha = sp.A / 255f;
-                    result[idx]     = (byte)(sp.B * alpha + result[idx]     * (1 - alpha));
-                    result[idx + 1] = (byte)(sp.G * alpha + result[idx + 1] * (1 - alpha));
-                    result[idx + 2] = (byte)(sp.R * alpha + result[idx + 2] * (1 - alpha));
+                    float a = sp.A / 255f;
+                    result[idx]     = (byte)(sp.B * a + result[idx]     * (1 - a));
+                    result[idx + 1] = (byte)(sp.G * a + result[idx + 1] * (1 - a));
+                    result[idx + 2] = (byte)(sp.R * a + result[idx + 2] * (1 - a));
                     result[idx + 3] = 255;
                 }
             }
         }
-        catch { }
+        catch { /* Logo é opcional */ }
     }
 
     private static Bitmap? _cachedFlirLogo;
