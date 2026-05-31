@@ -380,8 +380,6 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         gfx.Dispose();
         bmp.Dispose();
     }
-        bitmap.Dispose();
-    }
 
     /// <summary>
     /// Calcula a maior escala (mÃºltiplo inteiro) para que o texto caiba dentro de uma Ã¡rea mÃ¡xima.
