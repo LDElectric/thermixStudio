@@ -478,12 +478,14 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         pen.StartCap = System.Drawing.Drawing2D.LineCap.Square;
         pen.EndCap = System.Drawing.Drawing2D.LineCap.Square;
 
-        var radiusX = 7.0f * sx;
-        var radiusY = 7.0f * sy;
-        var gapX = 9.5f * sx;
-        var gapY = 9.5f * sy;
-        var armX = 25.0f * sx;
-        var armY = 23.0f * sy;
+        // Dimensões calibradas contra retículo original FLIR E8xt (320×240):
+        // braços 10-11px, gap ~7px, círculo central ~3.5px raio
+        var radiusX = 3.5f * sx;
+        var radiusY = 3.5f * sy;
+        var gapX = 6.5f * sx;
+        var gapY = 6.5f * sy;
+        var armX = 11.0f * sx;
+        var armY = 11.0f * sy;
 
         g.DrawEllipse(pen, cx - radiusX, cy - radiusY, radiusX * 2.0f, radiusY * 2.0f);
         g.DrawLine(pen, cx - armX, cy, cx - gapX, cy);

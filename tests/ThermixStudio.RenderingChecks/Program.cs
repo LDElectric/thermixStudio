@@ -55,6 +55,71 @@ Assert(comparison.SceneRmse < 125.0, $"Render muito distante da referencia. RMSE
 Assert(comparison.BelowHitRate > 0.35, $"Poucos pixels frios usando BelowColor. HitRate={comparison.BelowHitRate:P1}");
 
 await CheckMetadataCopyAsync(root, referencePath);
+
+// ─── Batch validation: all termograms in Termogramas/ ──────────────────
+Console.WriteLine("\n=== Batch validation: Termogramas/ ===");
+var batchDir = Path.Combine(root, "Termogramas");
+if (Directory.Exists(batchDir))
+{
+    var jpgs = Directory.GetFiles(batchDir, "*.jpg");
+    var results = new List<(string name, bool ok, string note)>();
+    foreach (var jpg in jpgs)
+    {
+        var name = Path.GetFileNameWithoutExtension(jpg);
+        try
+        {
+            var img = await analysis.LoadImageAsync(jpg);
+            var ok = true;
+            var notes = new List<string>();
+
+            // Check 1: dimensions
+            if (img.Width != 320 || img.Height != 240)
+            { ok = false; notes.Add($"dims={img.Width}x{img.Height}"); }
+
+            // Check 2: metadata completeness
+            if (img.Metadata.PlanckR1 is null) { ok = false; notes.Add("no PlanckR1"); }
+            if (img.Metadata.PlanckR2 is null) { ok = false; notes.Add("no PlanckR2"); }
+            if (img.Metadata.EmbeddedPaletteBgra is not { Length: 1024 }) { ok = false; notes.Add("no embedded palette"); }
+            if (img.Metadata.ImageTemperatureMinK is null) { ok = false; notes.Add("no ImageTempMin"); }
+
+            // Check 3: VisualScale detection
+            var vs = await detector.DetectAsync(jpg, img);
+            if (!vs.Success) { notes.Add($"scale fail: {vs.Notes}"); }
+            else { notes.Add($"scale {vs.MinC:F1}-{vs.MaxC:F1}C src={vs.Source}"); }
+
+            // Check 4: Reticle position (sampling original JPEG)
+            using var bmp = new Bitmap(jpg);
+            int retWhite = 0; int retTotal = 0;
+            int cx = bmp.Width / 2; int cy = bmp.Height / 2;
+            for (int dx = -12; dx <= 12; dx++)
+            {
+                if (cx + dx < 0 || cx + dx >= bmp.Width) continue;
+                var p = bmp.GetPixel(cx + dx, cy);
+                int mx = Math.Max(p.R, Math.Max(p.G, p.B));
+                int mn = Math.Min(p.R, Math.Min(p.G, p.B));
+                if (mx - mn <= 55 && (p.R + p.G + p.B) / 3 >= 155) retWhite++;
+                retTotal++;
+            }
+            double retCoverage = retTotal > 0 ? (double)retWhite / retTotal : 0;
+            if (retCoverage < 0.2) { notes.Add($"reticle H low: {retCoverage:P0}"); }
+
+            results.Add((name, ok, string.Join("; ", notes)));
+        }
+        catch (Exception ex)
+        {
+            results.Add((name, false, ex.Message));
+        }
+    }
+
+    var failures = results.Where(r => !r.ok).ToList();
+    Console.WriteLine($"Total: {results.Count}, Passed: {results.Count - failures.Count}, Failed: {failures.Count}");
+    foreach (var f in failures)
+        Console.WriteLine($"  FAIL {f.name}: {f.note}");
+    foreach (var r in results.Where(r => r.ok).Take(5))
+        Console.WriteLine($"  OK   {r.name}: {r.note}");
+    if (results.Count > 5) Console.WriteLine($"  ... and {results.Count - 5} more OK");
+}
+
 Console.WriteLine("Rendering checks OK.");
 
 static (double SceneRmse, double BelowHitRate) CompareReference(Bitmap reference, byte[] rendered, int width, int height)

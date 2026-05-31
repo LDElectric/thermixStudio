@@ -46,6 +46,11 @@ public sealed class ThermalModeEngine : IThermalModeEngine
     private static byte[] ComposeVisiblePure(byte[] visiblePixels)
         => (byte[])visiblePixels.Clone();
 
+    /// <summary>
+    /// Blending que preserva a saturação das cores térmicas usando a luminância
+    /// da imagem visível. Em alpha=0: 100% visível. Em alpha=1: 100% térmica.
+    /// No meio, as cores da paleta térmica aparecem sobre a estrutura da visível.
+    /// </summary>
     private static byte[] ComposeBlendingAlphaLinear(
         byte[] thermalPixels, byte[] visiblePixels,
         int width, int height,
@@ -55,9 +60,31 @@ public sealed class ThermalModeEngine : IThermalModeEngine
 
         for (int i = 0; i < thermalPixels.Length; i += 4)
         {
-            resultado[i]     = (byte)((thermalPixels[i] * alpha)     + (visiblePixels[i] * (1 - alpha)));
-            resultado[i + 1] = (byte)((thermalPixels[i + 1] * alpha) + (visiblePixels[i + 1] * (1 - alpha)));
-            resultado[i + 2] = (byte)((thermalPixels[i + 2] * alpha) + (visiblePixels[i + 2] * (1 - alpha)));
+            // Extrair luminância relativa da visível (Rec.601)
+            double visY = visiblePixels[i + 2] * 0.299 + visiblePixels[i + 1] * 0.587 + visiblePixels[i] * 0.114;
+            double visU = visiblePixels[i]     - visY; // B - Y (approx Cb)
+            double visV = visiblePixels[i + 2] - visY; // R - Y (approx Cr)
+
+            // Crominância da térmica (cores da paleta)
+            double thmY = thermalPixels[i + 2] * 0.299 + thermalPixels[i + 1] * 0.587 + thermalPixels[i] * 0.114;
+            double thmU = thermalPixels[i]     - thmY;
+            double thmV = thermalPixels[i + 2] - thmY;
+
+            // Luminância: blend entre visível e térmica
+            double outY = visY * (1.0 - alpha) + thmY * alpha;
+
+            // Crominância: sempre da térmica, com força controlada por alpha
+            double outU = thmU * alpha;
+            double outV = thmV * alpha;
+
+            // Recompor RGB
+            double r = outY + outV;
+            double b = outY + outU;
+            double g = (outY - 0.299 * r - 0.114 * b) / 0.587;
+
+            resultado[i]     = (byte)Math.Clamp((int)Math.Round(b), 0, 255);
+            resultado[i + 1] = (byte)Math.Clamp((int)Math.Round(g), 0, 255);
+            resultado[i + 2] = (byte)Math.Clamp((int)Math.Round(r), 0, 255);
             resultado[i + 3] = 255;
         }
 
