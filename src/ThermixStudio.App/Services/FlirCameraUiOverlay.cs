@@ -719,93 +719,78 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
     }
 
     /// <summary>
-    /// Preserva o logo FLIR usando máscara morfológica.
-    /// Só copia pixels do texto branco, nunca o fundo térmico.
+    /// Preserva o logo FLIR sobrepondo PNG com transparência.
     /// </summary>
     private static void OverlayFlirLogoOnly(byte[] result, byte[] originalPixels, int width, int height)
     {
-        int stride = width * 4;
-        double sx = width / 320.0;
-        double sy = height / 240.0;
+        try
+        {
+            using var logo = LoadFlirLogoPng();
+            if (logo is null) return;
 
-        // Região do logo FLIR E8xt (calibrada)
-        int x1 = Math.Clamp((int)(3 * sx), 0, width - 1);
-        int y1 = Math.Clamp((int)(218 * sy), 0, height - 1);
-        int x2 = Math.Clamp((int)(30 * sx), 0, width - 1);
-        int y2 = Math.Clamp((int)(233 * sy), 0, height - 1);
-        int logoW = x2 - x1 + 1;
-        int logoH = y2 - y1 + 1;
+            double sx = width / 320.0;
+            double sy = height / 240.0;
+            int destX = (int)(3 * sx);
+            int destY = (int)(218 * sy);
+            int destW = (int)(28 * sx);
+            int destH = (int)(16 * sy);
+            if (destW < 1 || destH < 1) return;
 
-        // Thresholds calibrados contra FLIR0063: logo = bright 240-250, sat 0-30
-        // Térmico = bright ≤230 ou sat ≥35. Separação limpa.
-        const int maxSat = 30;
-        const int minBright = 235;
-
-        // Passo 1: máscara binária
-        var mask = new bool[logoW, logoH];
-        for (int y = y1; y <= y2; y++)
-            for (int x = x1; x <= x2; x++)
+            int stride = width * 4;
+            for (int dy = 0; dy < destH; dy++)
             {
-                int idx = (y * stride) + (x * 4);
-                int maxC = Math.Max(originalPixels[idx + 2], Math.Max(originalPixels[idx + 1], originalPixels[idx]));
-                int minC = Math.Min(originalPixels[idx + 2], Math.Min(originalPixels[idx + 1], originalPixels[idx]));
-                int sat = maxC - minC;
-                int bright = (originalPixels[idx + 2] + originalPixels[idx + 1] + originalPixels[idx]) / 3;
-                mask[x - x1, y - y1] = sat <= maxSat && bright >= minBright;
-            }
+                int srcY = (int)((double)dy / destH * logo.Height);
+                if (srcY < 0 || srcY >= logo.Height) continue;
+                int destYPos = destY + dy;
+                if (destYPos < 0 || destYPos >= height) continue;
 
-        // Passo 2: dilatação morfológica (1px) para capturar bordas anti-aliased
-        var dilated = new bool[logoW, logoH];
-        for (int my = 0; my < logoH; my++)
-            for (int mx = 0; mx < logoW; mx++)
-            {
-                if (!mask[mx, my]) continue;
-                for (int dy = -1; dy <= 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        int nx = mx + dx, ny = my + dy;
-                        if (nx >= 0 && nx < logoW && ny >= 0 && ny < logoH)
-                            dilated[nx, ny] = true;
-                    }
-            }
-
-        // Passo 3: connected-component filter (mantém só componentes ≥ 3px)
-        var visited = new bool[logoW, logoH];
-        for (int my = 0; my < logoH; my++)
-            for (int mx = 0; mx < logoW; mx++)
-            {
-                if (!dilated[mx, my] || visited[mx, my]) continue;
-                var comp = new List<(int, int)>();
-                var q = new Queue<(int, int)>();
-                q.Enqueue((mx, my));
-                visited[mx, my] = true;
-                while (q.Count > 0)
+                for (int dx = 0; dx < destW; dx++)
                 {
-                    var (cx, cy) = q.Dequeue();
-                    comp.Add((cx, cy));
-                    for (int dy = -1; dy <= 1; dy++)
-                        for (int dx = -1; dx <= 1; dx++)
-                        {
-                            int nx = cx + dx, ny = cy + dy;
-                            if (nx >= 0 && nx < logoW && ny >= 0 && ny < logoH && dilated[nx, ny] && !visited[nx, ny])
-                            { visited[nx, ny] = true; q.Enqueue((nx, ny)); }
-                        }
-                }
-                if (comp.Count < 3)
-                    foreach (var (cx, cy) in comp) dilated[cx, cy] = false;
-            }
+                    int srcX = (int)((double)dx / destW * logo.Width);
+                    if (srcX < 0 || srcX >= logo.Width) continue;
+                    int destXPos = destX + dx;
+                    if (destXPos < 0 || destXPos >= width) continue;
 
-        // Passo 4: copiar pixels do original onde a máscara está ativa
-        for (int y = y1; y <= y2; y++)
-            for (int x = x1; x <= x2; x++)
-            {
-                if (!dilated[x - x1, y - y1]) continue;
-                int idx = (y * stride) + (x * 4);
-                result[idx] = originalPixels[idx];
-                result[idx + 1] = originalPixels[idx + 1];
-                result[idx + 2] = originalPixels[idx + 2];
-                result[idx + 3] = originalPixels[idx + 3];
+                    var sp = logo.GetPixel(srcX, srcY);
+                    if (sp.A < 10) continue;
+
+                    int idx = (destYPos * stride) + (destXPos * 4);
+                    float alpha = sp.A / 255f;
+                    result[idx]     = (byte)(sp.B * alpha + result[idx]     * (1 - alpha));
+                    result[idx + 1] = (byte)(sp.G * alpha + result[idx + 1] * (1 - alpha));
+                    result[idx + 2] = (byte)(sp.R * alpha + result[idx + 2] * (1 - alpha));
+                    result[idx + 3] = 255;
+                }
             }
+        }
+        catch { }
+    }
+
+    private static Bitmap? _cachedFlirLogo;
+    private static Bitmap? LoadFlirLogoPng()
+    {
+        if (_cachedFlirLogo is not null) return _cachedFlirLogo;
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "flir logo.png");
+            if (!File.Exists(path))
+            {
+                var current = new DirectoryInfo(AppContext.BaseDirectory);
+                while (current is not null)
+                {
+                    var candidate = Path.Combine(current.FullName, "flir logo.png");
+                    if (File.Exists(candidate)) { path = candidate; break; }
+                    current = current.Parent;
+                }
+            }
+            if (File.Exists(path))
+            {
+                _cachedFlirLogo = new Bitmap(path);
+                return _cachedFlirLogo;
+            }
+        }
+        catch { }
+        return null;
     }
 
     private static void OverlayOriginalTemperatureTextBoxes(

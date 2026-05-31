@@ -38,6 +38,11 @@
       <Content Include="paletas\*_lut.json"
         CopyToOutputDirectory="Always"
         CopyToPublishDirectory="PreserveNewest" />
+      <Content Include="..\..\flir logo.png"
+        Link="flir logo.png"
+        CopyToOutputDirectory="PreserveNewest"
+        CopyToPublishDirectory="PreserveNewest"
+        Visible="false" />
       <None Include="paletas\*_lut.csv"
         Condition="Exists('paletas')"
         CopyToOutputDirectory="PreserveNewest"
