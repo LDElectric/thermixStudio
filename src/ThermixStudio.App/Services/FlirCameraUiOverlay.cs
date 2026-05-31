@@ -736,9 +736,10 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         int logoW = x2 - x1 + 1;
         int logoH = y2 - y1 + 1;
 
-        // Thresholds ultra-restritivos para texto branco FLIR
-        const int maxSat = 28;
-        const int minBright = 195;
+        // Thresholds calibrados contra FLIR0063: logo = bright 240-250, sat 0-30
+        // Térmico = bright ≤230 ou sat ≥35. Separação limpa.
+        const int maxSat = 30;
+        const int minBright = 235;
 
         // Passo 1: máscara binária
         var mask = new bool[logoW, logoH];
