@@ -20,16 +20,8 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
         if (!File.Exists(imagePath))
             return Task.FromResult(Failed("Arquivo original nao encontrado."));
 
-        // Prioridade 1: visual-fit da barra de escala queimada no JPEG
-        // (funciona para qualquer câmera com paleta embedded, não só FLIR)
-        if (image.Metadata.EmbeddedPaletteBgra is not null && image.Metadata.EmbeddedPaletteBgra.Length == 256 * 4)
-        {
-            var fit = TryFitVisualScaleToReference(imagePath, image);
-            if (fit.Success && fit.Confidence >= 0.3)
-                return Task.FromResult(fit);
-        }
-
-        // Prioridade 2: ImageTemperatureMin/Max do EXIF (Level/Span em Kelvin → °C)
+        // Prioridade 1: ImageTemperatureMin/Max do EXIF (Level/Span em Kelvin → °C)
+        // Estes valores são muito próximos dos burned-in (≤0.5°C) e são a fonte mais confiável
         if (image.Metadata.ImageTemperatureMinK.HasValue &&
             image.Metadata.ImageTemperatureMaxK.HasValue &&
             image.Metadata.ImageTemperatureMaxK.Value > image.Metadata.ImageTemperatureMinK.Value)
@@ -42,10 +34,19 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
                 MinC = Math.Round(minC, 1),
                 MaxC = Math.Round(maxC, 1),
                 Source = VisualScaleSource.ExifImageTemperature,
-                Confidence = 0.5,
+                Confidence = 0.9,
                 DetectorName = nameof(VisualScaleDetector),
-                Notes = "ImageTemperatureMin/Max do EXIF (Level/Span da câmera)."
+                Notes = "ImageTemperatureMin/Max do EXIF (Level/Span da camera)."
             });
+        }
+
+        // Prioridade 2: visual-fit da barra de escala queimada
+        // Usado quando EXIF não tem ImageTemperature (ex: câmeras não-FLIR ou metadados incompletos)
+        if (image.Metadata.EmbeddedPaletteBgra is not null && image.Metadata.EmbeddedPaletteBgra.Length == 256 * 4)
+        {
+            var fit = TryFitVisualScaleToReference(imagePath, image);
+            if (fit.Success && fit.Confidence >= 0.3)
+                return Task.FromResult(fit);
         }
 
         // Prioridade 3: range da matriz radiométrica (último recurso)

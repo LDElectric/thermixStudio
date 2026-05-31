@@ -43,8 +43,18 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                 int barY1 = (int)(30 * sy0);
                 int barX2 = (int)(312 * sx0);
                 int barY2 = (int)(207 * sy0);
+
+                // Copiar fundo original da barra (inclui borda natural da câmera)
+                if (originalPixels is not null && originalPixels.Length == width * height * 4)
+                {
+                    int bgX1 = (int)(303 * sx0);
+                    int bgY1 = (int)(28 * sy0);
+                    int bgX2 = (int)(315 * sx0);
+                    int bgY2 = (int)(209 * sy0);
+                    CopyOriginalRectangle(result, originalPixels, width, height, bgX1, bgY1, bgX2, bgY2);
+                }
+
                 DrawPaletteScaleBar(result, width, height, scaleLut, barX1, barY1, barX2, barY2);
-                DrawRectBorder(result, width, height, barX1 - 1, barY1 - 1, barX2 + 1, barY2 + 1, 1, Color.Black);
             }
             else if (mode != ImageViewMode.Visible && originalPixels is not null && originalPixels.Length == width * height * 4)
             {
