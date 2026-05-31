@@ -772,20 +772,11 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         if (_cachedFlirLogo is not null) return _cachedFlirLogo;
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "flir logo.png");
-            if (!File.Exists(path))
+            using var stream = typeof(FlirCameraUiOverlay).Assembly
+                .GetManifestResourceStream("ThermixStudio.App.flir_logo.png");
+            if (stream is not null)
             {
-                var current = new DirectoryInfo(AppContext.BaseDirectory);
-                while (current is not null)
-                {
-                    var candidate = Path.Combine(current.FullName, "flir logo.png");
-                    if (File.Exists(candidate)) { path = candidate; break; }
-                    current = current.Parent;
-                }
-            }
-            if (File.Exists(path))
-            {
-                _cachedFlirLogo = new Bitmap(path);
+                _cachedFlirLogo = new Bitmap(stream);
                 return _cachedFlirLogo;
             }
         }
