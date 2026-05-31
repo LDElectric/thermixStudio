@@ -85,6 +85,7 @@ public sealed class RadiometricMetadata
     public double? SpotTemperatureC { get; set; }
     public double? SpotNormalizedX { get; set; }
     public double? SpotNormalizedY { get; set; }
+    public string? SpotLabel { get; set; }
     public double? Real2IR { get; set; }
     public int? OffsetX { get; set; }
     public int? OffsetY { get; set; }

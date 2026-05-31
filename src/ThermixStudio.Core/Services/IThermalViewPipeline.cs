@@ -66,5 +66,6 @@ public interface IThermalViewPipeline
         double? maxTemperatureC = null,
         double? minTemperatureC = null,
         bool? spotIsApproximate = null,
-        bool preferOriginalTemperatureText = false);
+        bool preferOriginalTemperatureText = false,
+        string? spotLabel = null);
 }

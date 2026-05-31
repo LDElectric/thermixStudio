@@ -155,6 +155,7 @@ internal static class RadiometricMetadataExtractor
                 ReadFirstDouble(first, "SpotX", "Spot1X", "SpotMeterX", "SpotMeterX1", "TspotX"), imageWidth);
             metadata.SpotNormalizedY ??= NormalizeSpotCoordinate(
                 ReadFirstDouble(first, "SpotY", "Spot1Y", "SpotMeterY", "SpotMeterY1", "TspotY"), imageHeight);
+            metadata.SpotLabel ??= ReadString(first, "Meas1Label");
 
             metadata.PlanckR1 ??= ReadDouble(first, "PlanckR1");
             metadata.PlanckR2 ??= ReadDouble(first, "PlanckR2");

@@ -26,7 +26,8 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         double? maxTemperatureC = null,
         double? minTemperatureC = null,
         bool? spotIsApproximate = null,
-        bool preferOriginalTemperatureText = false)
+        bool preferOriginalTemperatureText = false,
+        string? spotLabel = null)
     {
         if (finalPixels is null || finalPixels.Length != width * height * 4)
             return Array.Empty<byte>();
@@ -271,7 +272,30 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         // ---- Spot temperature (topo-esquerda) ----
         string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
         string spotUnit = " Â°C";
-        string fullSpotText = spotText + spotUnit;
+        string fullSpotText;
+
+        // Prefixo do spot (ex: "Sp1", "Máx.", detectado do EXIF Meas1Label)
+        if (!string.IsNullOrWhiteSpace(spotLabel))
+        {
+            // Prefixo em escala reduzida (60% da escala do valor)
+            int prefixScale = Math.Max(1, spotScale * 3 / 5);
+            int prefixWidth = FlirBitmapFont.MeasureText(spotLabel, prefixScale);
+
+            // Desenhar prefixo à esquerda do valor, alinhado pela base
+            int prefixX = textX;
+            int prefixY = textY + (spotTextHeight - 10 * prefixScale);
+            FlirBitmapFont.DrawText(pixels, width, height, spotLabel,
+                prefixX, prefixY, prefixScale,
+                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+
+            // Ajustar posição do texto principal para depois do prefixo
+            textX += prefixWidth + (int)(2 * spotScale);
+            fullSpotText = spotText + spotUnit;
+        }
+        else
+        {
+            fullSpotText = spotText + spotUnit;
+        }
 
         // Ãrea mÃ¡xima disponÃ­vel para o spot (evita invadir o centro)
         int maxSpotWidth = (int)((width / 2) - (8 * sx));
@@ -554,6 +578,22 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
 
         var bestScore = 0;
         var bestSamples = 1;
+
+        // Calcular densidade de pixels brancos na área central para detectar falsos positivos
+        int centerWhite = 0, centerTotal = 0;
+        int cx0 = width / 2, cy0 = height / 2;
+        for (int cy = Math.Max(0, cy0 - 15); cy <= Math.Min(height - 1, cy0 + 15); cy++)
+            for (int cx = Math.Max(0, cx0 - 15); cx <= Math.Min(width - 1, cx0 + 15); cx++)
+            {
+                centerTotal++;
+                if (IsReticleOverlayPixel(originalPixels, width, height, cx, cy)) centerWhite++;
+            }
+        double centerWhiteRatio = centerTotal > 0 ? (double)centerWhite / centerTotal : 0;
+
+        // Se > 50% dos pixels centrais são "brancos", provável conteúdo térmico, não retículo
+        if (centerWhiteRatio > 0.50)
+            return false;
+
         for (var y = minY + outer; y <= maxY - outer; y++)
         {
             for (var x = minX + outer; x <= maxX - outer; x++)
@@ -583,7 +623,15 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             }
         }
 
-        return bestScore >= Math.Max(18, bestSamples * 0.33);
+        // Só aceita se encontrou pixels suficientes (≥33% de cobertura) e o centro não está muito longe do default
+        double ratio = (double)bestScore / bestSamples;
+        if (ratio < 0.33) return false;
+
+        // Se o centro detectado está muito longe do centro geométrico (>15px), rejeitar
+        double distFromDefault = Math.Sqrt((centerX - width / 2.0) * (centerX - width / 2.0) + (centerY - height / 2.0) * (centerY - height / 2.0));
+        if (distFromDefault > 15.0 * Math.Max(sx, sy)) return false;
+
+        return true;
     }
 
     private static bool IsReticleOverlayPixel(byte[] pixels, int width, int height, int x, int y)
