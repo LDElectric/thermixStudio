@@ -271,56 +271,44 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
 
         // ---- Spot temperature (topo-esquerda) ----
         string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
-        string spotUnit = " Â°C";
-        string fullSpotText;
-
-        // Prefixo do spot (ex: "Sp1", "Máx.", detectado do EXIF Meas1Label)
-        if (!string.IsNullOrWhiteSpace(spotLabel))
-        {
-            // Prefixo em escala reduzida (60% da escala do valor)
-            int prefixScale = Math.Max(1, spotScale * 3 / 5);
-            int prefixWidth = FlirBitmapFont.MeasureText(spotLabel, prefixScale);
-
-            // Desenhar prefixo à esquerda do valor, alinhado pela base
-            int prefixX = textX;
-            int prefixY = textY + (spotTextHeight - 10 * prefixScale);
-            FlirBitmapFont.DrawText(pixels, width, height, spotLabel,
-                prefixX, prefixY, prefixScale,
-                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
-
-            // Ajustar posição do texto principal para depois do prefixo
-            textX += prefixWidth + (int)(2 * spotScale);
-            fullSpotText = spotText + spotUnit;
-        }
-        else
-        {
-            fullSpotText = spotText + spotUnit;
-        }
+        string spotUnit = " °C";
+        string fullSpotText = spotText + spotUnit;
 
         // Ãrea mÃ¡xima disponÃ­vel para o spot (evita invadir o centro)
         int maxSpotWidth = (int)((width / 2) - (8 * sx));
-        int maxSpotHeight = (int)(height * 0.15f); // altura mÃ¡xima razoÃ¡vel
+        int maxSpotHeight = (int)(height * 0.15f);
 
         int spotScale = CalculateOptimalScaleForArea(fullSpotText, maxSpotWidth, maxSpotHeight, 10, 1, (int)(Math.Max(sx, sy) * 2.5));
         int spotTextWidth = FlirBitmapFont.MeasureText(fullSpotText, spotScale);
         int spotTextHeight = 10 * spotScale;
 
-        // Margens internas proporcionais Ã  escala
         int spotMarginX = (int)(4 * spotScale);
         int spotMarginY = (int)(2 * spotScale);
         int boxWidth = spotTextWidth + (spotMarginX * 2);
         int boxHeight = spotTextHeight + (spotMarginY * 2);
 
-        // PosiÃ§Ã£o da caixa (canto superior esquerdo)
         int boxX = (int)(4 * sx);
         int boxY = (int)(4 * sy);
 
-        // Desenhar caixa preta arredondada
-        DrawFilledRoundedRect(pixels, width, height, boxX, boxY, boxWidth, boxHeight, (int)(spotScale * 1.5f), Color.Black);
-
-        // Desenhar texto alinhado Ã  esquerda dentro da caixa
         int textX = boxX + spotMarginX;
         int textY = boxY + spotMarginY;
+
+        // Prefixo do spot (ex: "Sp1", detectado do EXIF Meas1Label)
+        if (!string.IsNullOrWhiteSpace(spotLabel))
+        {
+            int prefixScale = Math.Max(1, spotScale * 3 / 5);
+            int prefixWidth = FlirBitmapFont.MeasureText(spotLabel, prefixScale);
+            int prefixY = textY + (spotTextHeight - 10 * prefixScale);
+
+            FlirBitmapFont.DrawText(pixels, width, height, spotLabel,
+                textX, prefixY, prefixScale,
+                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+
+            textX += prefixWidth + (int)(2 * spotScale);
+            boxWidth += prefixWidth + (int)(2 * spotScale);
+        }
+
+        DrawFilledRoundedRect(pixels, width, height, boxX, boxY, boxWidth, boxHeight, (int)(spotScale * 1.5f), Color.Black);
         FlirBitmapFont.DrawText(pixels, width, height, fullSpotText,
             textX, textY, spotScale,
             FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
