@@ -31,8 +31,6 @@ public partial class App : Application
 				
 				// FASE 1-3: Novos motores
 				services.AddSingleton<IExifToolService, Services.ExifToolService>();
-				services.AddSingleton<IThermalModeDetectionService, Services.ThermalModeDetectionService>();
-				services.AddSingleton<IFlirCameraUiOverlay, Services.FlirCameraUiOverlay>();
 				services.AddSingleton<IThermalRenderEngine, Services.ThermalRenderEngine>();
 				services.AddSingleton<IThermalPaletteEngine, Services.ThermalPaletteEngine>();
 				services.AddSingleton<IThermalModeEngine, Services.ThermalModeEngine>();

@@ -1,0 +1,959 @@
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using ThermixStudio.Core;
+using ThermixStudio.Core.Services;
+
+namespace ThermixStudio.App.Services;
+
+/// <summary>
+/// Motor de composição de modos térmicos extraído de modos_CS.
+/// Implementa renderização de:
+/// - Térmica Pura
+/// - MSX (Laplaciano + edge detection)
+/// - Blending (Alpha linear)
+/// - PiP (50% central)
+/// - Visible (Luz visível pura)
+/// - Fusion (Intervalo de temperatura)
+/// </summary>
+public sealed class ThermalModeEngine : IThermalModeEngine
+{
+    private readonly IExifToolService _exifTool;
+
+    public ThermalModeEngine(IExifToolService exifTool)
+    {
+        _exifTool = exifTool;
+    }
+
+    public byte[] RenderMode(
+        ImageViewMode mode,
+        byte[] thermalPixels, int width, int height,
+        byte[]? visiblePixels,
+        double intensity, double pipScale,
+        ThermalImageData? thermalData = null)
+    {
+        bool hasVisible = visiblePixels is not null && visiblePixels.Length == width * height * 4;
+
+        return mode switch
+        {
+            ImageViewMode.Thermal => ComposeThermalPure(thermalPixels),
+            ImageViewMode.Visible when hasVisible => ComposeVisiblePure(visiblePixels!),
+            ImageViewMode.Visible when !hasVisible => ComposeThermalPure(thermalPixels),
+            ImageViewMode.Blending when hasVisible => ComposeBlendingAlphaLinear(thermalPixels, visiblePixels!, width, height, intensity),
+            ImageViewMode.Blending when !hasVisible => ComposeThermalPure(thermalPixels),
+            ImageViewMode.PiP when hasVisible => ComposePictureInPicture(thermalPixels, visiblePixels!, width, height, pipScale),
+            ImageViewMode.PiP when !hasVisible => ComposeThermalPure(thermalPixels),
+            ImageViewMode.Msx when hasVisible => ComposeMsx(thermalPixels, visiblePixels!, width, height, intensity),
+            ImageViewMode.Msx when !hasVisible => ComposeThermalPure(thermalPixels),
+            _ => thermalPixels
+        };
+    }
+
+    public async Task<ImageViewMode?> TryDetectOriginalModeAsync(string imagePath, CancellationToken cancellationToken = default)
+    {
+        return await _exifTool.TryDetectModeAsync(imagePath, cancellationToken);
+    }
+
+    public bool ModeRequiresVisible(ImageViewMode mode) =>
+        mode is ImageViewMode.Visible or ImageViewMode.Fusion or ImageViewMode.Blending or ImageViewMode.PiP or ImageViewMode.Msx;
+
+    #region Composição de Modos (Algoritmos de modos_CS)
+
+    private static byte[] ComposeThermalPure(byte[] thermalPixels)
+    {
+        return (byte[])thermalPixels.Clone();
+    }
+
+    private static byte[] ComposeVisiblePure(byte[] visiblePixels)
+    {
+        return (byte[])visiblePixels.Clone();
+    }
+
+    private static byte[] ComposeBlendingAlphaLinear(
+        byte[] thermalPixels, byte[] visiblePixels,
+        int width, int height,
+        double alpha)
+    {
+        var resultado = new byte[thermalPixels.Length];
+
+        for (int i = 0; i < thermalPixels.Length; i += 4)
+        {
+            resultado[i]     = (byte)((thermalPixels[i] * alpha)     + (visiblePixels[i] * (1 - alpha)));     // B
+            resultado[i + 1] = (byte)((thermalPixels[i + 1] * alpha) + (visiblePixels[i + 1] * (1 - alpha))); // G
+            resultado[i + 2] = (byte)((thermalPixels[i + 2] * alpha) + (visiblePixels[i + 2] * (1 - alpha))); // R
+            resultado[i + 3] = 255;
+        }
+
+        return resultado;
+    }
+
+    private static byte[] ComposeMsx(
+    byte[] thermalPixels, byte[] visiblePixels,
+    int width, int height,
+    double ganhoContorno)
+    {
+        var resultado = new byte[thermalPixels.Length];
+        int stride = width * 4;
+
+        Array.Copy(thermalPixels, resultado, thermalPixels.Length);
+
+        for (int y = 1; y < height - 1; y++)
+        {
+            for (int x = 1; x < width - 1; x++)
+            {
+                int vy = y;
+                int vx = x;
+
+                int idxC = (vy       * stride) + (vx       * 4);
+                int idxT = ((vy - 1) * stride) + (vx       * 4);
+                int idxB = ((vy + 1) * stride) + (vx       * 4);
+                int idxL = (vy       * stride) + ((vx - 1) * 4);
+                int idxR = (vy       * stride) + ((vx + 1) * 4);
+
+                int cLuma = (visiblePixels[idxC] + visiblePixels[idxC + 1] + visiblePixels[idxC + 2]) / 3;
+                int tLuma = (visiblePixels[idxT] + visiblePixels[idxT + 1] + visiblePixels[idxT + 2]) / 3;
+                int bLuma = (visiblePixels[idxB] + visiblePixels[idxB + 1] + visiblePixels[idxB + 2]) / 3;
+                int lLuma = (visiblePixels[idxL] + visiblePixels[idxL + 1] + visiblePixels[idxL + 2]) / 3;
+                int rLuma = (visiblePixels[idxR] + visiblePixels[idxR + 1] + visiblePixels[idxR + 2]) / 3;
+
+                int laplaciano = (4 * cLuma) - tLuma - bLuma - lLuma - rLuma;
+                int realce = (int)(laplaciano * ganhoContorno * 1.15);
+
+                int dest = (y * stride) + (x * 4);
+                resultado[dest]     = (byte)Math.Clamp(thermalPixels[dest]     + realce, 0, 255);
+                resultado[dest + 1] = (byte)Math.Clamp(thermalPixels[dest + 1] + realce, 0, 255);
+                resultado[dest + 2] = (byte)Math.Clamp(thermalPixels[dest + 2] + realce, 0, 255);
+                resultado[dest + 3] = 255;
+            }
+        }
+
+        return resultado;
+    }
+
+    private static byte[] ComposePictureInPicture(
+        byte[] thermalPixels, byte[] visiblePixels,
+        int width, int height,
+        double pipScale)
+    {
+        using var visivelBmp = BitmapFromBgra(width, height, visiblePixels);
+        using var termicaBmp = BitmapFromBgra(width, height, thermalPixels);
+        using var resultBmp = new Bitmap(visivelBmp);
+        using (var g = Graphics.FromImage(resultBmp))
+        {
+            int pipW = (int)(width * Math.Clamp(pipScale, 0.3, 0.7));
+            int pipH = (int)(height * Math.Clamp(pipScale, 0.3, 0.7));
+            int pipX = (width - pipW) / 2;
+            int pipY = (height - pipH) / 2;
+
+            int cropW = (int)(termicaBmp.Width * Math.Clamp(pipScale, 0.3, 0.7));
+            int cropH = (int)(termicaBmp.Height * Math.Clamp(pipScale, 0.3, 0.7));
+            int cropX = (termicaBmp.Width - cropW) / 2;
+            int cropY = (termicaBmp.Height - cropH) / 2;
+
+            var sourceRect = new Rectangle(cropX, cropY, cropW, cropH);
+            var destRect = new Rectangle(pipX, pipY, pipW, pipH);
+
+            g.DrawImage(termicaBmp, destRect, sourceRect, GraphicsUnit.Pixel);
+
+            using var pen = new Pen(Color.White, 3);
+            g.DrawRectangle(pen, destRect);
+        }
+
+        return BgraFromBitmap(resultBmp);
+    }
+
+    #endregion
+
+    #region Utilitários de Bitmap
+
+    private static Bitmap BitmapFromBgra(int width, int height, byte[] bgraData)
+    {
+        var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        var rect = new Rectangle(0, 0, width, height);
+        var bmpData = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+
+        Marshal.Copy(bgraData, 0, bmpData.Scan0, bgraData.Length);
+        bmp.UnlockBits(bmpData);
+
+        return bmp;
+    }
+
+    private static byte[] BgraFromBitmap(Bitmap bmp)
+    {
+        var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+        var bmpData = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+        byte[] buffer = new byte[bmpData.Stride * bmp.Height];
+        Marshal.Copy(bmpData.Scan0, buffer, 0, buffer.Length);
+        bmp.UnlockBits(bmpData);
+
+        return buffer;
+    }
+
+    #endregion
+
+    #region Sobreposição de UI da Câmera (com escala dinâmica de fonte)
+
+    /// <summary>
+    /// Sobrepõe os elementos de UI da câmera original sobre a imagem renderizada final,
+    /// usando bounding boxes precisos mapeados para cada elemento específico da câmera FLIR.
+    /// Agora com escala dinâmica de texto para perfect fit.
+    /// </summary>
+    public byte[] OverlayCameraUI(
+        byte[] finalPixels,
+        byte[] originalPixels,
+        int width,
+        int height,
+        ImageViewMode mode = ImageViewMode.Thermal,
+        ThermalPaletteLutData? scaleLut = null,
+        bool copyOriginalScaleBar = true,
+        double? scaleMinC = null,
+        double? scaleMaxC = null,
+        double? spotTemperatureC = null,
+        double? maxTemperatureC = null,
+        double? minTemperatureC = null,
+        bool? spotIsApproximate = null,
+        bool preferOriginalTemperatureText = false)
+    {
+        if (finalPixels is null || finalPixels.Length != width * height * 4)
+            return Array.Empty<byte>();
+
+        var result = (byte[])finalPixels.Clone();
+        bool useProgrammaticOverlay = true;
+        if (useProgrammaticOverlay)
+        {
+            if (mode != ImageViewMode.Visible && scaleLut is not null && scaleLut.Rgb.Count > 0)
+            {
+                double sx0 = width / 320.0;
+                double sy0 = height / 240.0;
+                DrawPaletteScaleBar(
+                    result,
+                    width,
+                    height,
+                    scaleLut,
+                    (int)(305 * sx0),
+                    (int)(30 * sy0),
+                    (int)(312 * sx0),
+                    (int)(207 * sy0));
+            }
+            else if (mode != ImageViewMode.Visible && originalPixels is not null && originalPixels.Length == width * height * 4)
+            {
+                double sx0 = width / 320.0;
+                double sy0 = height / 240.0;
+                CopyOriginalRectangle(
+                    result,
+                    originalPixels,
+                    width,
+                    height,
+                    (int)(300 * sx0),
+                    (int)(28 * sy0),
+                    (int)(318 * sx0),
+                    (int)(193 * sy0));
+            }
+
+            var reticleX = width / 2.0;
+            var reticleY = height / 2.0;
+            if (originalPixels is not null &&
+                originalPixels.Length == width * height * 4)
+            {
+                TryDetectFlirReticleCenter(originalPixels, width, height, out reticleX, out reticleY);
+            }
+
+            DrawProgrammaticFlirUi(
+                result,
+                width,
+                height,
+                mode,
+                scaleMinC,
+                scaleMaxC,
+                spotTemperatureC,
+                maxTemperatureC,
+                minTemperatureC,
+                spotIsApproximate ?? false,
+                reticleX,
+                reticleY,
+                drawReticle: true);
+
+            if (preferOriginalTemperatureText &&
+                originalPixels is not null &&
+                originalPixels.Length == width * height * 4)
+            {
+                OverlayOriginalTemperatureTextBoxes(result, originalPixels, width, height, mode);
+            }
+
+            if (originalPixels is not null && originalPixels.Length == width * height * 4)
+            {
+                OverlayFlirLogoOnly(result, originalPixels, width, height);
+            }
+
+            return result;
+        }
+
+        // Fallback para o método antigo (caso useProgrammaticOverlay seja false)
+        int stride = width * 4;
+        const int darkThreshold   = 60;
+        const int brightThreshold = 170;
+        const int maxSaturation   = 40;
+
+        double sx = width  / 320.0;
+        double sy = height / 240.0;
+
+        bool visibleMode = mode == ImageViewMode.Visible;
+
+        if (!visibleMode)
+        {
+            if (scaleLut is not null && scaleLut.Rgb.Count > 0)
+            {
+                DrawPaletteScaleBar(
+                    result,
+                    width,
+                    height,
+                    scaleLut,
+                    (int)(304 * sx),
+                    (int)(30 * sy),
+                    (int)(313 * sx),
+                    (int)(207 * sy));
+            }
+            else if (copyOriginalScaleBar)
+            {
+                CopyOriginalRectangle(
+                    result,
+                    originalPixels,
+                    width,
+                    height,
+                    (int)(302 * sx),
+                    (int)(28 * sy),
+                    (int)(316 * sx),
+                    (int)(210 * sy));
+            }
+        }
+
+        var uiBoxes = new (int x1, int y1, int x2, int y2)[]
+        {
+            ((int)(  2*sx), (int)(  2*sy), (int)( 96*sx), (int)( 28*sy)),
+            ((int)(275*sx), (int)(  2*sy), (int)(318*sx), (int)( 28*sy)),
+            ((int)(275*sx), (int)(210*sy), (int)(318*sx), (int)(238*sy)),
+            ((int)(  2*sx), (int)(210*sy), (int)(100*sx), (int)(238*sy)),
+            ((int)(290*sx), (int)( 25*sy), (int)(318*sx), (int)(215*sy)),
+            ((int)(130*sx), (int)(95*sy), (int)(190*sx), (int)(145*sy)),
+        };
+
+        for (int i = 0; i < uiBoxes.Length; i++)
+        {
+            if (visibleMode && (i == 1 || i == 2 || i == 4))
+                continue;
+
+            var (bx1, by1, bx2, by2) = uiBoxes[i];
+            int clampX2 = Math.Min(bx2, width  - 1);
+            int clampY2 = Math.Min(by2, height - 1);
+            bool isLogoArea = (i == 3);
+            bool isScaleArea = (i == 4);
+            bool isCrosshairArea = (i == 5);
+
+            for (int y = Math.Max(by1, 0); y <= clampY2; y++)
+            {
+                for (int x = Math.Max(bx1, 0); x <= clampX2; x++)
+                {
+                    if (isScaleArea && scaleLut is not null && IsInsideScaleBarFill(x, y, width, height))
+                        continue;
+
+                    int idx = (y * stride) + (x * 4);
+                    byte ob  = originalPixels[idx];
+                    byte og  = originalPixels[idx + 1];
+                    byte or_ = originalPixels[idx + 2];
+
+                    int brightness = (or_ + og + ob) / 3;
+                    int maxC = Math.Max(or_, Math.Max(og, ob));
+                    int minC = Math.Min(or_, Math.Min(og, ob));
+                    int sat  = maxC - minC;
+
+                    bool match;
+                    if (isLogoArea)
+                    {
+                        match = sat <= 30 && brightness > 180;
+                    }
+                    else if (isCrosshairArea)
+                    {
+                        match = IsNearCrosshairLine(x, y, width, height)
+                            && sat <= 75
+                            && (brightness < 115 || brightness > 135);
+                    }
+                    else
+                    {
+                        match = sat <= maxSaturation && (brightness < darkThreshold || brightness > brightThreshold);
+                    }
+
+                    if (match)
+                    {
+                        result[idx]     = ob;
+                        result[idx + 1] = og;
+                        result[idx + 2] = or_;
+                        result[idx + 3] = originalPixels[idx + 3];
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    #region Métodos auxiliares para UI programática
+
+    private static void DrawProgrammaticFlirUi(
+        byte[] pixels,
+        int width,
+        int height,
+        ImageViewMode mode,
+        double? scaleMinC,
+        double? scaleMaxC,
+        double? spotTemperatureC,
+        double? maxTemperatureC,
+        double? minTemperatureC,
+        bool spotIsApproximate,
+        double? reticleCenterX = null,
+        double? reticleCenterY = null,
+        bool drawReticle = true)
+    {
+        float sx = width / 320f;
+        float sy = height / 240f;
+        bool visibleMode = mode == ImageViewMode.Visible;
+
+        // --- Desenhar retícula (crosshair) com GDI+ ---
+        using var bitmap = BitmapFromBgra(width, height, pixels);
+        using var g = Graphics.FromImage(bitmap);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+
+        if (drawReticle)
+        {
+            using var shadowPen = new Pen(Color.Black, Math.Max(2.4f, 2.8f * Math.Max(sx, sy)));
+            using var whitePen = new Pen(Color.White, Math.Max(1.4f, 1.65f * Math.Max(sx, sy)));
+            var reticleX = (float)(reticleCenterX ?? (160 * sx));
+            var reticleY = (float)(reticleCenterY ?? (120 * sy));
+            DrawReticle(g, reticleX, reticleY, sx, sy, shadowPen);
+            DrawReticle(g, reticleX, reticleY, sx, sy, whitePen);
+        }
+
+        // Converter GDI+ de volta para buffer (já tem a retícula)
+        var rendered = BgraFromBitmap(bitmap);
+        Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
+        g.Dispose();
+        bitmap.Dispose();
+
+        // --- Agora desenhamos as caixas e textos com fonte bitmap, sem GDI+ para as caixas ---
+        // (As caixas serão desenhadas diretamente no buffer BGRA para total controle)
+
+        // ---- Spot temperature (topo-esquerda) ----
+        string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
+        string spotUnit = " °C";
+        string fullSpotText = spotText + spotUnit;
+
+        // Área máxima disponível para o spot (evita invadir o centro)
+        int maxSpotWidth = (int)((width / 2) - (8 * sx));
+        int maxSpotHeight = (int)(height * 0.15f); // altura máxima razoável
+
+        int spotScale = CalculateOptimalScaleForArea(fullSpotText, maxSpotWidth, maxSpotHeight, 10, 1, (int)(Math.Max(sx, sy) * 2.5));
+        int spotTextWidth = FlirBitmapFont.MeasureText(fullSpotText, spotScale);
+        int spotTextHeight = 10 * spotScale;
+
+        // Margens internas proporcionais à escala
+        int spotMarginX = (int)(4 * spotScale);
+        int spotMarginY = (int)(2 * spotScale);
+        int boxWidth = spotTextWidth + (spotMarginX * 2);
+        int boxHeight = spotTextHeight + (spotMarginY * 2);
+
+        // Posição da caixa (canto superior esquerdo)
+        int boxX = (int)(4 * sx);
+        int boxY = (int)(4 * sy);
+
+        // Desenhar caixa preta arredondada
+        DrawFilledRoundedRect(pixels, width, height, boxX, boxY, boxWidth, boxHeight, (int)(spotScale * 1.5f), Color.Black);
+
+        // Desenhar texto alinhado à esquerda dentro da caixa
+        int textX = boxX + spotMarginX;
+        int textY = boxY + spotMarginY;
+        FlirBitmapFont.DrawText(pixels, width, height, fullSpotText,
+            textX, textY, spotScale,
+            FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+
+        if (!visibleMode)
+        {
+            // ---- Tmax (topo-direita) ----
+            string topText = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: true);
+            int maxTopWidth = (int)(width * 0.3f);
+            int maxTopHeight = (int)(height * 0.1f);
+            int topScale = CalculateOptimalScaleForArea(topText, maxTopWidth, maxTopHeight, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
+            int topTextWidth = FlirBitmapFont.MeasureText(topText, topScale);
+            int topTextHeight = 10 * topScale;
+
+            int topMarginX = (int)(4 * topScale);
+            int topMarginY = (int)(2 * topScale);
+            int topBoxWidth = topTextWidth + (topMarginX * 2);
+            int topBoxHeight = topTextHeight + (topMarginY * 2);
+
+            int topBoxX = width - topBoxWidth - (int)(4 * sx);
+            int topBoxY = (int)(4 * sy);
+
+            DrawFilledRoundedRect(pixels, width, height, topBoxX, topBoxY, topBoxWidth, topBoxHeight, (int)(topScale * 1.5f), Color.Black);
+            // Texto alinhado à direita dentro da caixa
+            int topTextX = topBoxX + topBoxWidth - topTextWidth - topMarginX;
+            int topTextY = topBoxY + topMarginY;
+            FlirBitmapFont.DrawText(pixels, width, height, topText,
+                topTextX, topTextY, topScale,
+                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+
+            // ---- Tmin (base-direita) ----
+            string bottomText = FormatTemperature(scaleMinC ?? minTemperatureC, compact: true);
+            int bottomScale = CalculateOptimalScaleForArea(bottomText, maxTopWidth, maxTopHeight, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
+            int bottomTextWidth = FlirBitmapFont.MeasureText(bottomText, bottomScale);
+            int bottomTextHeight = 10 * bottomScale;
+
+            int bottomMarginX = (int)(4 * bottomScale);
+            int bottomMarginY = (int)(2 * bottomScale);
+            int bottomBoxWidth = bottomTextWidth + (bottomMarginX * 2);
+            int bottomBoxHeight = bottomTextHeight + (bottomMarginY * 2);
+
+            int bottomBoxX = width - bottomBoxWidth - (int)(4 * sx);
+            int bottomBoxY = height - bottomBoxHeight - (int)(4 * sy);
+
+            DrawFilledRoundedRect(pixels, width, height, bottomBoxX, bottomBoxY, bottomBoxWidth, bottomBoxHeight, (int)(bottomScale * 1.5f), Color.Black);
+            int bottomTextX = bottomBoxX + bottomBoxWidth - bottomTextWidth - bottomMarginX;
+            int bottomTextY = bottomBoxY + bottomMarginY;
+            FlirBitmapFont.DrawText(pixels, width, height, bottomText,
+                bottomTextX, bottomTextY, bottomScale,
+                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+        }
+
+        // Opcional: desenhar a barra de escala (paleta) se necessário (já tratado fora)
+    }
+
+    /// <summary>
+    /// Calcula a maior escala (múltiplo inteiro) para que o texto caiba dentro de uma área máxima.
+    /// </summary>
+    private static int CalculateOptimalScaleForArea(string text, int maxWidth, int maxHeight, int baseGlyphHeight = 10, int minScale = 1, int maxScale = 10)
+    {
+        int bestScale = minScale;
+        for (int scale = maxScale; scale >= minScale; scale--)
+        {
+            int textWidth = FlirBitmapFont.MeasureText(text, scale);
+            int textHeight = baseGlyphHeight * scale;
+            if (textWidth <= maxWidth && textHeight <= maxHeight)
+            {
+                bestScale = scale;
+                break;
+            }
+        }
+        return bestScale;
+    }
+
+    /// <summary>
+    /// Desenha um retângulo arredondado preenchido (sem borda) diretamente no buffer BGRA.
+    /// Usa cor sólida (preto) e bordas arredondadas simples.
+    /// </summary>
+    private static void DrawFilledRoundedRect(byte[] pixels, int width, int height, int x, int y, int w, int h, int radius, Color color)
+    {
+        if (w <= 0 || h <= 0) return;
+        int stride = width * 4;
+        byte r = color.R, g = color.G, b = color.B;
+
+        for (int dy = 0; dy < h; dy++)
+        {
+            int py = y + dy;
+            if (py < 0 || py >= height) continue;
+
+            for (int dx = 0; dx < w; dx++)
+            {
+                int px = x + dx;
+                if (px < 0 || px >= width) continue;
+
+                // Verificar se está dentro dos cantos arredondados
+                bool inside = true;
+                if (radius > 0)
+                {
+                    // Canto superior esquerdo
+                    if (dx < radius && dy < radius)
+                    {
+                        int dist = (radius - dx) * (radius - dx) + (radius - dy) * (radius - dy);
+                        if (dist > radius * radius) inside = false;
+                    }
+                    // Canto superior direito
+                    else if (dx >= w - radius && dy < radius)
+                    {
+                        int dxr = dx - (w - radius);
+                        int dist = (radius - dxr) * (radius - dxr) + (radius - dy) * (radius - dy);
+                        if (dist > radius * radius) inside = false;
+                    }
+                    // Canto inferior esquerdo
+                    else if (dx < radius && dy >= h - radius)
+                    {
+                        int dyr = dy - (h - radius);
+                        int dist = (radius - dx) * (radius - dx) + (radius - dyr) * (radius - dyr);
+                        if (dist > radius * radius) inside = false;
+                    }
+                    // Canto inferior direito
+                    else if (dx >= w - radius && dy >= h - radius)
+                    {
+                        int dxr = dx - (w - radius);
+                        int dyr = dy - (h - radius);
+                        int dist = (radius - dxr) * (radius - dxr) + (radius - dyr) * (radius - dyr);
+                        if (dist > radius * radius) inside = false;
+                    }
+                }
+
+                if (inside)
+                {
+                    int idx = (py * stride) + (px * 4);
+                    pixels[idx] = b;     // B
+                    pixels[idx + 1] = g; // G
+                    pixels[idx + 2] = r; // R
+                    pixels[idx + 3] = 255;
+                }
+            }
+        }
+    }
+
+    private static void DrawReticle(Graphics g, float cx, float cy, float sx, float sy, Pen pen)
+    {
+        pen.StartCap = System.Drawing.Drawing2D.LineCap.Square;
+        pen.EndCap = System.Drawing.Drawing2D.LineCap.Square;
+
+        var radiusX = 7.0f * sx;
+        var radiusY = 7.0f * sy;
+        var gapX = 9.5f * sx;
+        var gapY = 9.5f * sy;
+        var armX = 25.0f * sx;
+        var armY = 23.0f * sy;
+
+        g.DrawEllipse(pen, cx - radiusX, cy - radiusY, radiusX * 2.0f, radiusY * 2.0f);
+        g.DrawLine(pen, cx - armX, cy, cx - gapX, cy);
+        g.DrawLine(pen, cx + gapX, cy, cx + armX, cy);
+        g.DrawLine(pen, cx, cy - armY, cx, cy - gapY);
+        g.DrawLine(pen, cx, cy + gapY, cx, cy + armY);
+    }
+
+    #endregion
+
+    #region Métodos auxiliares existentes (não modificados)
+
+    private static bool IsNearCrosshairLine(int x, int y, int width, int height)
+    {
+        double sx = width / 320.0;
+        double sy = height / 240.0;
+        double cx = 160.0 * sx;
+        double cy = 120.0 * sy;
+
+        bool vertical = Math.Abs(x - cx) <= Math.Max(2.0, 2.0 * sx)
+            && y >= (int)(102 * sy)
+            && y <= (int)(138 * sy);
+
+        bool horizontal = Math.Abs(y - cy) <= Math.Max(2.0, 2.0 * sy)
+            && x >= (int)(138 * sx)
+            && x <= (int)(182 * sx);
+
+        bool ticks =
+            (Math.Abs(x - (146.0 * sx)) <= Math.Max(2.0, 2.0 * sx) && Math.Abs(y - cy) <= Math.Max(4.0, 4.0 * sy)) ||
+            (Math.Abs(x - (174.0 * sx)) <= Math.Max(2.0, 2.0 * sx) && Math.Abs(y - cy) <= Math.Max(4.0, 4.0 * sy)) ||
+            (Math.Abs(y - (108.0 * sy)) <= Math.Max(2.0, 2.0 * sy) && Math.Abs(x - cx) <= Math.Max(4.0, 4.0 * sx)) ||
+            (Math.Abs(y - (132.0 * sy)) <= Math.Max(2.0, 2.0 * sy) && Math.Abs(x - cx) <= Math.Max(4.0, 4.0 * sx));
+
+        return vertical || horizontal || ticks;
+    }
+
+    private static bool TryDetectFlirReticleCenter(byte[]? originalPixels, int width, int height, out double centerX, out double centerY)
+    {
+        centerX = width / 2.0;
+        centerY = height / 2.0;
+        if (originalPixels is null || originalPixels.Length != width * height * 4 || width <= 0 || height <= 0)
+            return false;
+
+        var sx = width / 320.0;
+        var sy = height / 240.0;
+        var s = Math.Max(0.75, Math.Min(sx, sy));
+        var inner = Math.Max(2, (int)Math.Round(4 * s));
+        var outer = Math.Max(inner + 8, (int)Math.Round(20 * s));
+        var halfThickness = Math.Max(1, (int)Math.Ceiling(1.5 * s));
+
+        var minX = Math.Clamp((int)Math.Round(20 * sx), 0, width - 1);
+        var maxX = Math.Clamp(width - 1 - (int)Math.Round(58 * sx), 0, width - 1);
+        var minY = Math.Clamp((int)Math.Round(35 * sy), 0, height - 1);
+        var maxY = Math.Clamp(height - 1 - (int)Math.Round(30 * sy), 0, height - 1);
+        if (maxX <= minX || maxY <= minY) return false;
+
+        var bestScore = 0;
+        var bestSamples = 1;
+        for (var y = minY + outer; y <= maxY - outer; y++)
+        {
+            for (var x = minX + outer; x <= maxX - outer; x++)
+            {
+                var score = 0;
+                var samples = 0;
+
+                for (var d = -outer; d <= outer; d++)
+                {
+                    if (Math.Abs(d) < inner) continue;
+
+                    for (var t = -halfThickness; t <= halfThickness; t++)
+                    {
+                        samples += 2;
+                        if (IsReticleOverlayPixel(originalPixels, width, height, x + d, y + t)) score++;
+                        if (IsReticleOverlayPixel(originalPixels, width, height, x + t, y + d)) score++;
+                    }
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestSamples = Math.Max(1, samples);
+                    centerX = x;
+                    centerY = y;
+                }
+            }
+        }
+
+        return bestScore >= Math.Max(18, bestSamples * 0.33);
+    }
+
+    private static bool IsReticleOverlayPixel(byte[] pixels, int width, int height, int x, int y)
+    {
+        if ((uint)x >= (uint)width || (uint)y >= (uint)height) return false;
+        var idx = ((y * width) + x) * 4;
+        var b = pixels[idx];
+        var g = pixels[idx + 1];
+        var r = pixels[idx + 2];
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
+        var brightness = (r + g + b) / 3;
+        var saturation = max - min;
+        return saturation <= 55 && brightness >= 155;
+    }
+
+    private static string FormatTemperatureValue(double? value, bool approximate = false)
+    {
+        if (!value.HasValue || !double.IsFinite(value.Value))
+            return approximate ? "~--.-" : "--.-";
+        var prefix = approximate ? "~" : string.Empty;
+        var formattedValue = value.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        return $"{prefix}{formattedValue}";
+    }
+
+    private static string FormatTemperature(double? value, bool compact = false)
+    {
+        if (!value.HasValue || !double.IsFinite(value.Value))
+            return compact ? "--.-" : "--.- C";
+        var formattedValue = value.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        return compact ? formattedValue : $"{formattedValue} C";
+    }
+
+    private static void OverlayFlirLogoOnly(byte[] result, byte[] originalPixels, int width, int height)
+    {
+        int stride = width * 4;
+        double sx = width / 320.0;
+        double sy = height / 240.0;
+        int x1 = Math.Clamp((int)(2 * sx), 0, width - 1);
+        int y1 = Math.Clamp((int)(216 * sy), 0, height - 1);
+        int x2 = Math.Clamp((int)(57 * sx), 0, width - 1);
+        int y2 = Math.Clamp((int)(235 * sy), 0, height - 1);
+
+        for (int y = y1; y <= y2; y++)
+        {
+            for (int x = x1; x <= x2; x++)
+            {
+                int idx = (y * stride) + (x * 4);
+                byte ob = originalPixels[idx];
+                byte og = originalPixels[idx + 1];
+                byte or_ = originalPixels[idx + 2];
+                int brightness = (or_ + og + ob) / 3;
+                int maxC = Math.Max(or_, Math.Max(og, ob));
+                int minC = Math.Min(or_, Math.Min(og, ob));
+                int sat = maxC - minC;
+
+                if (sat <= 35 && brightness > 170)
+                {
+                    result[idx] = ob;
+                    result[idx + 1] = og;
+                    result[idx + 2] = or_;
+                    result[idx + 3] = originalPixels[idx + 3];
+                }
+            }
+        }
+    }
+
+    private static void OverlayOriginalTemperatureTextBoxes(
+        byte[] result,
+        byte[] originalPixels,
+        int width,
+        int height,
+        ImageViewMode mode)
+    {
+        double sx = width / 320.0;
+        double sy = height / 240.0;
+
+        CopyOriginalUiRectangleMasked(
+            result,
+            originalPixels,
+            width,
+            height,
+            (int)Math.Round(4 * sx),
+            (int)Math.Round(4 * sy),
+            (int)Math.Round(92 * sx),
+            (int)Math.Round(25 * sy));
+
+        if (mode == ImageViewMode.Visible) return;
+
+        CopyOriginalUiRectangleMasked(
+            result,
+            originalPixels,
+            width,
+            height,
+            (int)Math.Round(277 * sx),
+            (int)Math.Round(4 * sy),
+            (int)Math.Round(316 * sx),
+            (int)Math.Round(25 * sy));
+
+        CopyOriginalUiRectangleMasked(
+            result,
+            originalPixels,
+            width,
+            height,
+            (int)Math.Round(278 * sx),
+            (int)Math.Round(215 * sy),
+            (int)Math.Round(316 * sx),
+            (int)Math.Round(235 * sy));
+    }
+
+    private static bool IsInsideScaleBarFill(int x, int y, int width, int height)
+    {
+        double sx = width / 320.0;
+        double sy = height / 240.0;
+        return x >= (int)(304 * sx) && x <= (int)(313 * sx) && y >= (int)(30 * sy) && y <= (int)(207 * sy);
+    }
+
+    private static void DrawPaletteScaleBar(
+        byte[] result,
+        int width,
+        int height,
+        ThermalPaletteLutData lut,
+        int x1,
+        int y1,
+        int x2,
+        int y2)
+    {
+        if (lut.Rgb.Count == 0) return;
+
+        int stride = width * 4;
+        int startX = Math.Clamp(Math.Min(x1, x2), 0, width - 1);
+        int endX = Math.Clamp(Math.Max(x1, x2), 0, width - 1);
+        int startY = Math.Clamp(Math.Min(y1, y2), 0, height - 1);
+        int endY = Math.Clamp(Math.Max(y1, y2), 0, height - 1);
+        double range = Math.Max(1, endY - startY);
+
+        for (int y = startY; y <= endY; y++)
+        {
+            double normalized = 1.0 - ((y - startY) / range);
+            var (r, g, b) = InterpolateLut(lut, normalized);
+
+            for (int x = startX; x <= endX; x++)
+            {
+                int idx = (y * stride) + (x * 4);
+                result[idx] = b;
+                result[idx + 1] = g;
+                result[idx + 2] = r;
+                result[idx + 3] = 255;
+            }
+        }
+    }
+
+    private static (byte r, byte g, byte b) InterpolateLut(ThermalPaletteLutData lut, double normalized)
+    {
+        double pos = Math.Clamp(normalized, 0.0, 1.0) * (lut.Rgb.Count - 1);
+        int lo = Math.Clamp((int)Math.Floor(pos), 0, lut.Rgb.Count - 1);
+        int hi = Math.Clamp(lo + 1, 0, lut.Rgb.Count - 1);
+        double t = pos - lo;
+
+        var c0 = lut.Rgb[lo];
+        var c1 = lut.Rgb[hi];
+
+        return (
+            LerpByte(c0[0], c1[0], t),
+            LerpByte(c0[1], c1[1], t),
+            LerpByte(c0[2], c1[2], t));
+    }
+
+    private static byte LerpByte(int a, int b, double t)
+        => (byte)Math.Clamp((int)Math.Round(a + ((b - a) * t)), 0, 255);
+
+    private static void CopyOriginalRectangle(
+        byte[] result,
+        byte[] originalPixels,
+        int width,
+        int height,
+        int x1,
+        int y1,
+        int x2,
+        int y2)
+    {
+        int stride = width * 4;
+        int startX = Math.Clamp(Math.Min(x1, x2), 0, width - 1);
+        int endX = Math.Clamp(Math.Max(x1, x2), 0, width - 1);
+        int startY = Math.Clamp(Math.Min(y1, y2), 0, height - 1);
+        int endY = Math.Clamp(Math.Max(y1, y2), 0, height - 1);
+
+        for (int y = startY; y <= endY; y++)
+        {
+            for (int x = startX; x <= endX; x++)
+            {
+                int idx = (y * stride) + (x * 4);
+                result[idx] = originalPixels[idx];
+                result[idx + 1] = originalPixels[idx + 1];
+                result[idx + 2] = originalPixels[idx + 2];
+                result[idx + 3] = originalPixels[idx + 3];
+            }
+        }
+    }
+
+    private static void CopyOriginalUiRectangleMasked(
+        byte[] result,
+        byte[] originalPixels,
+        int width,
+        int height,
+        int x1,
+        int y1,
+        int x2,
+        int y2)
+    {
+        int stride = width * 4;
+        int startX = Math.Clamp(Math.Min(x1, x2), 0, width - 1);
+        int endX = Math.Clamp(Math.Max(x1, x2), 0, width - 1);
+        int startY = Math.Clamp(Math.Min(y1, y2), 0, height - 1);
+        int endY = Math.Clamp(Math.Max(y1, y2), 0, height - 1);
+
+        for (int y = startY; y <= endY; y++)
+        {
+            for (int x = startX; x <= endX; x++)
+            {
+                int idx = (y * stride) + (x * 4);
+                byte ob = originalPixels[idx];
+                byte og = originalPixels[idx + 1];
+                byte or_ = originalPixels[idx + 2];
+
+                int brightness = (or_ + og + ob) / 3;
+                int max = Math.Max(or_, Math.Max(og, ob));
+                int min = Math.Min(or_, Math.Min(og, ob));
+                int saturation = max - min;
+
+                if (saturation <= 45 && (brightness <= 72 || brightness >= 165))
+                {
+                    result[idx] = ob;
+                    result[idx + 1] = og;
+                    result[idx + 2] = or_;
+                    result[idx + 3] = originalPixels[idx + 3];
+                }
+            }
+        }
+    }
+
+    #endregion
+
+    #endregion
+}

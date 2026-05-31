@@ -15,23 +15,17 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
     private readonly IThermalPaletteEngine _paletteEngine;
     private readonly IThermalModeEngine _modeEngine;
     private readonly IThermalAnalysisService _analysisService;
-    private readonly IThermalModeDetectionService _modeDetectionService;
-    private readonly IFlirCameraUiOverlay _cameraUiOverlay;
 
     public ThermalViewPipeline(
         IThermalRenderEngine renderEngine,
         IThermalPaletteEngine paletteEngine,
         IThermalModeEngine modeEngine,
-        IThermalAnalysisService analysisService,
-        IThermalModeDetectionService modeDetectionService,
-        IFlirCameraUiOverlay cameraUiOverlay)
+        IThermalAnalysisService analysisService)
     {
         _renderEngine = renderEngine;
         _paletteEngine = paletteEngine;
         _modeEngine = modeEngine;
         _analysisService = analysisService;
-        _modeDetectionService = modeDetectionService;
-        _cameraUiOverlay = cameraUiOverlay;
     }
 
     public async Task PrepareThermogramAsync(string imagePath, CancellationToken cancellationToken = default)
@@ -48,7 +42,7 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
     }
 
     public Task<ImageViewMode?> DetectCaptureModeFromMetadataAsync(string imagePath, CancellationToken cancellationToken = default)
-        => _modeDetectionService.DetectFromFileAsync(imagePath, cancellationToken);
+        => _modeEngine.TryDetectOriginalModeAsync(imagePath, cancellationToken);
 
     public async Task<string?> DetectPaletteFromFileAsync(string imagePath, CancellationToken cancellationToken = default)
     {
@@ -127,7 +121,7 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
             copyOriginalScaleBar = false;
         }
 
-        return _cameraUiOverlay.Overlay(
+        return _modeEngine.OverlayCameraUI(
             finalPixels,
             originalPixels,
             width,

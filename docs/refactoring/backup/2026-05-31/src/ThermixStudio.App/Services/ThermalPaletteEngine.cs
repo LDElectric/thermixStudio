@@ -7,7 +7,6 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using ThermixStudio.Core;
 using ThermixStudio.Core.Services;
-using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.App.Services;
 
@@ -211,11 +210,11 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         if (range <= 0) range = 0.01;
 
         var pixels = new byte[width * height * 4];
-        var useLimitColors = FlirColorUtils.UsesFlirLimitColors(metadata);
-        var belowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteBelowColorYCrCb, fallbackY: 50);
-        var aboveColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteAboveColorYCrCb, fallbackY: 170);
-        var underflowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteUnderflowColorYCrCb, fallbackY: 41);
-        var overflowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteOverflowColorYCrCb, fallbackY: 67);
+        var useLimitColors = UsesFlirLimitColors(metadata);
+        var belowColor = ResolveYCrCbLimitColor(metadata?.PaletteBelowColorYCrCb, fallbackY: 50);
+        var aboveColor = ResolveYCrCbLimitColor(metadata?.PaletteAboveColorYCrCb, fallbackY: 170);
+        var underflowColor = ResolveYCrCbLimitColor(metadata?.PaletteUnderflowColorYCrCb, fallbackY: 41);
+        var overflowColor = ResolveYCrCbLimitColor(metadata?.PaletteOverflowColorYCrCb, fallbackY: 67);
 
         // 1. Calcular histograma de Sinal (Plateau Equalization / DDE algorithm)
         int numBins = 16384; // Resolução de 14 bits típica das matrizes térmicas
@@ -292,12 +291,12 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                 // Prioridade 1: Underflow/Overflow do sensor (fora do range do hardware)
                 if (useLimitColors && t < sensorMinC)
                 {
-                    FlirColorUtils.WriteLimitColor(underflowColor, pixels, dest);
+                    WriteLimitColor(underflowColor, pixels, dest);
                     continue;
                 }
                 if (useLimitColors && t > sensorMaxC)
                 {
-                    FlirColorUtils.WriteLimitColor(overflowColor, pixels, dest);
+                    WriteLimitColor(overflowColor, pixels, dest);
                     continue;
                 }
 
@@ -447,9 +446,23 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         var c0 = lut.Rgb[lo];
         var c1 = lut.Rgb[hi];
 
-        pixels[dest]     = FlirColorUtils.LerpByte(c0[2], c1[2], t); // B
-        pixels[dest + 1] = FlirColorUtils.LerpByte(c0[1], c1[1], t); // G
-        pixels[dest + 2] = FlirColorUtils.LerpByte(c0[0], c1[0], t); // R
+        pixels[dest]     = LerpByte(c0[2], c1[2], t); // B
+        pixels[dest + 1] = LerpByte(c0[1], c1[1], t); // G
+        pixels[dest + 2] = LerpByte(c0[0], c1[0], t); // R
+    }
+
+    private static bool UsesFlirLimitColors(RadiometricMetadata? metadata)
+    {
+        if (metadata is null)
+        {
+            return false;
+        }
+
+        return metadata.PaletteBelowColorYCrCb is not null ||
+            metadata.PaletteAboveColorYCrCb is not null ||
+            metadata.Detector.Contains("FLIR", StringComparison.OrdinalIgnoreCase) ||
+            metadata.CameraModel.Contains("FLIR", StringComparison.OrdinalIgnoreCase) ||
+            metadata.Manufacturer.Contains("FLIR", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ThermalPaletteLutData? TryBuildEmbeddedLut(string paletteName, RadiometricMetadata? metadata)
@@ -483,6 +496,30 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
             Rgb = colors
         };
     }
+
+    private static (byte R, byte G, byte B) ResolveYCrCbLimitColor(int[]? yCrCb, int fallbackY)
+    {
+        var y = Math.Clamp(yCrCb is { Length: >= 1 } ? yCrCb[0] : fallbackY, 0, 255);
+        var cr = Math.Clamp(yCrCb is { Length: >= 2 } ? yCrCb[1] : 128, 0, 255);
+        var cb = Math.Clamp(yCrCb is { Length: >= 3 } ? yCrCb[2] : 128, 0, 255);
+
+        var r = Math.Clamp(y + (1.402 * (cr - 128)), 0, 255);
+        var g = Math.Clamp(y - (0.344 * (cb - 128)) - (0.714 * (cr - 128)), 0, 255);
+        var b = Math.Clamp(y + (1.772 * (cb - 128)), 0, 255);
+
+        return ((byte)Math.Round(r), (byte)Math.Round(g), (byte)Math.Round(b));
+    }
+
+    private static void WriteLimitColor((byte R, byte G, byte B) color, byte[] pixels, int dest)
+    {
+        pixels[dest] = color.B;
+        pixels[dest + 1] = color.G;
+        pixels[dest + 2] = color.R;
+        pixels[dest + 3] = 255;
+    }
+
+    private static byte LerpByte(int a, int b, double t)
+        => (byte)Math.Clamp((int)Math.Round(a + ((b - a) * t)), 0, 255);
 
     #region Carregamento de LUTs
 

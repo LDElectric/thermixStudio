@@ -1,5 +1,4 @@
 using ThermixStudio.Core;
-using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.App.Services;
 
@@ -51,9 +50,9 @@ public sealed class ThermalRenderEngine : IThermalRenderEngine
 
         // Seleciona LUT baseado na paleta
         byte[] lut = SelectLut(parameters.Palette);
-        var useLimitColors = FlirColorUtils.UsesFlirLimitColors(image.Metadata);
-        var belowColor = FlirColorUtils.ResolveYCrCbLimitColor(image.Metadata.PaletteBelowColorYCrCb, fallbackY: 50);
-        var aboveColor = FlirColorUtils.ResolveYCrCbLimitColor(image.Metadata.PaletteAboveColorYCrCb, fallbackY: 170);
+        var useLimitColors = UsesFlirLimitColors(image.Metadata);
+        var belowColor = ResolveYCrCbLimitColor(image.Metadata.PaletteBelowColorYCrCb, fallbackY: 50);
+        var aboveColor = ResolveYCrCbLimitColor(image.Metadata.PaletteAboveColorYCrCb, fallbackY: 170);
 
         for (var y = 0; y < height; y++)
         {
@@ -64,13 +63,13 @@ public sealed class ThermalRenderEngine : IThermalRenderEngine
 
                 if (useLimitColors && t < appliedMin)
                 {
-                    FlirColorUtils.WriteLimitColor(belowColor, pixels, idx);
+                    WriteLimitColor(belowColor, pixels, idx);
                     continue;
                 }
 
                 if (useLimitColors && t > appliedMax)
                 {
-                    FlirColorUtils.WriteLimitColor(aboveColor, pixels, idx);
+                    WriteLimitColor(aboveColor, pixels, idx);
                     continue;
                 }
 
@@ -114,6 +113,52 @@ public sealed class ThermalRenderEngine : IThermalRenderEngine
         return lut;
     }
 
+    private static bool UsesFlirLimitColors(RadiometricMetadata metadata)
+    {
+        return metadata.PaletteBelowColorYCrCb is not null ||
+            metadata.PaletteAboveColorYCrCb is not null ||
+            metadata.Detector.Contains("FLIR", StringComparison.OrdinalIgnoreCase) ||
+            metadata.CameraModel.Contains("FLIR", StringComparison.OrdinalIgnoreCase) ||
+            metadata.Manufacturer.Contains("FLIR", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static (byte R, byte G, byte B) ResolveYCrCbLimitColor(int[]? yCrCb, int fallbackY)
+    {
+        var y = Math.Clamp(yCrCb is { Length: >= 1 } ? yCrCb[0] : fallbackY, 0, 255);
+        var cr = Math.Clamp(yCrCb is { Length: >= 2 } ? yCrCb[1] : 128, 0, 255);
+        var cb = Math.Clamp(yCrCb is { Length: >= 3 } ? yCrCb[2] : 128, 0, 255);
+
+        var r = Math.Clamp(y + (1.402 * (cr - 128)), 0, 255);
+        var g = Math.Clamp(y - (0.344 * (cb - 128)) - (0.714 * (cr - 128)), 0, 255);
+        var b = Math.Clamp(y + (1.772 * (cb - 128)), 0, 255);
+
+        return ((byte)Math.Round(r), (byte)Math.Round(g), (byte)Math.Round(b));
+    }
+
+    private static void WriteLimitColor((byte R, byte G, byte B) color, byte[] pixels, int dest)
+    {
+        pixels[dest] = color.B;
+        pixels[dest + 1] = color.G;
+        pixels[dest + 2] = color.R;
+        pixels[dest + 3] = 255;
+    }
+
     private static (double min, double max) GetAbsoluteRange(ThermalImageData image)
-        => TemperatureRangeCalculator.GetRange(image);
+    {
+        var min = double.MaxValue;
+        var max = double.MinValue;
+
+        for (var y = 0; y < image.Height; y++)
+            for (var x = 0; x < image.Width; x++)
+            {
+                var t = image.Temperatures[y, x];
+                if (t < min) min = t;
+                if (t > max) max = t;
+            }
+
+        if (!double.IsFinite(min) || !double.IsFinite(max) || min >= max)
+            return (0, 1);
+
+        return (min, max);
+    }
 }

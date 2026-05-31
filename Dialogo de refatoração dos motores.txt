@@ -1,0 +1,477 @@
+O que eu pedi inicialmente ao Agent:
+Seja honesto, avalie minha sugestão:
+Sugestão de Organização Modular dos Motores Thermix Studio
+Sumário
+Este documento propõe uma reorganização dos motores/serviços do projeto, visando maior coesão, separação de responsabilidades e facilidade de manutenção. A análise identifica responsabilidades excedentes, dependências cruzadas e oportunidades de extração de novos módulos.
+
+1. ExifToolService
+Responsabilidade principal: Localizar e fornecer o caminho do ExifTool para extração de metadados FLIR.
+Responsabilidades excedentes: Lida com múltiplos caminhos legados e lógica de fallback que poderia ser externalizada.
+Sugestão: Manter focado apenas em localização e execução do ExifTool. Lógica de fallback pode ser movida para um utilitário de ambiente.
+2. FlirBitmapFont
+Responsabilidade principal: Renderização de fonte bitmap FLIR pixel-perfect.
+Responsabilidades excedentes: Nenhuma aparente, está bem focado.
+Sugestão: Manter como módulo isolado de tipografia bitmap.
+3. ImageMetadataPreservationService
+Responsabilidade principal: Copiar e preservar metadados de imagens usando ExifTool.
+Responsabilidades excedentes: Nenhuma aparente.
+Sugestão: Manter como serviço dedicado à manipulação de metadados.
+4. ThermalAnalysisService
+Responsabilidade principal: Carregar imagens térmicas, extrair matriz de temperatura, metadados e formatos diversos.
+Responsabilidades excedentes: Lida com parsing de múltiplos formatos (CSV, IS2, IRG, RJPEG), extração de paleta, e fallback de dados.
+Sugestão: Extrair parsing de formatos para módulos separados (ex: CsvThermalParser, FlukeIs2Parser, InfiRayParser). Manter ThermalAnalysisService como orquestrador.
+5. ThermalImageAnnotator
+Responsabilidade principal: Gerar imagens com marcadores de medição (spots, áreas, círculos).
+Responsabilidades excedentes: Nenhuma aparente.
+Sugestão: Manter como utilitário de anotação visual.
+6. ThermalModeDetectionService
+Responsabilidade principal: (Arquivo vazio) — deveria ser responsável apenas por detecção de modo térmico.
+Sugestão: Implementar apenas lógica de detecção de modo, sem renderização ou manipulação de imagem.
+7. ThermalModeEngine
+Responsabilidade principal: Composição e renderização de modos térmicos (Thermal, MSX, Blending, PiP, Visible, Fusion).
+Responsabilidades excedentes: Lida com detecção de modo original (deveria ser do ModeDetectionService), depende de ExifTool para detecção.
+Sugestão: Remover lógica de detecção de modo e delegar para ThermalModeDetectionService. Manter apenas algoritmos de composição de modos.
+8. ThermalPaletteEngine
+Responsabilidade principal: Renderização de paletas térmicas, detecção automática de paleta, remapeamento de cores.
+Responsabilidades excedentes: Lida com cache e carregamento de LUTs, que poderia ser um serviço separado.
+Sugestão: Extrair gerenciamento de LUTs para ThermalPaletteLutService. Manter engine focada em renderização e detecção.
+9. ThermalRenderEngine
+Responsabilidade principal: Renderização minimalista usando paleta embarcada ou fallback Iron.
+Responsabilidades excedentes: Nenhuma aparente, mas depende de lógica de seleção de LUT que poderia ser externalizada.
+Sugestão: Manter minimalista, delegando seleção de LUT para serviço de paletas.
+10. ThermalViewPipeline
+Responsabilidade principal: Fachada para orquestração de renderização, paleta e modo.
+Responsabilidades excedentes: Nenhuma aparente, atua como pipeline/fachada.
+Sugestão: Manter como orquestrador, sem lógica de negócio interna.
+11. VisualScaleDetector
+Responsabilidade principal: Detecção de escala visual (min/max) em imagens térmicas.
+Responsabilidades excedentes: Lida com fallback de escala baseado em matriz radiométrica, que poderia ser utilitário.
+Sugestão: Extrair fallback para utilitário de escala. Manter detector focado em análise visual.
+Recomendações Gerais
+Separar parsing de formatos térmicos em módulos independentes.
+Centralizar lógica de fallback e utilitários (ambiente, escala, LUTs).
+Delegar detecção de modo para ThermalModeDetectionService.
+Manter engines focadas em renderização/composição e não em detecção ou parsing.
+Documentar dependências cruzadas para evitar acoplamento excessivo.
+
+Reveja com uma analise mais profunda e criteriosa estes mesmos pontos,  tambem o arquivo domainmodels se precisa ser ajustado e separado em arquivos com responsabilidades separadas e emita um novo relatorio com um a separação precisa de responsabilidades para remover responsabilidades excessivas nos arquivos.
+
+
+O que o Agent me respondeu:
+Relatório de Arquitetura — Análise Crítica dos Motores Thermix Studio
+Revisei o código atual (~4.500 linhas só nos serviços térmicos). Sua proposta aponta na direção certa, mas subestima alguns problemas reais e superestima outros. Abaixo está uma avaliação honesta, com separação de responsabilidades mais precisa do que a proposta original.
+
+Veredicto geral sobre sua sugestão
+Aspecto	Avaliação
+Direção arquitetural
+Correta — engines focadas, parsers extraídos, detecção centralizada
+Diagnóstico de excesso
+Parcial — identifica sintomas, mas não a causa raiz (duplicação)
+Priorização
+Imprecisa — alguns extratos pequenos antes de consolidar duplicatas críticas
+DomainModels.cs
+Não abordado na proposta — precisa sim de separação
+ThermalModeDetectionService
+Correto — arquivo vazio, lógica espalhada em 3 lugares
+ThermalModeEngine
+Incompleto — o problema maior não é detecção, é UI overlay (~65% do arquivo)
+Problema raiz que sua proposta não nomeia
+O maior acoplamento hoje não é “responsabilidade excedente” isolada — é código duplicado entre módulos que deveriam compartilhar infraestrutura:
+
+ExifTool:     ExifToolService  ←→  ThermalAnalysisService.ResolveExifToolPath() (cópia independente)
+Modo:         ExifToolService  ←→  ThermalAnalysisService.MapExifModeToEnum()
+              ←→  ThermalModeEngine.TryDetectOriginalModeAsync() (proxy)
+FLIR APP1:    4 implementações quase idênticas em ThermalAnalysisService (~800 linhas repetidas)
+YCbCr/cores:  ResolveYCrCbLimitColor duplicado em 4 arquivos
+IsFlir:       duplicado em VisualScaleDetector, ThermalRenderEngine, ThermalPaletteEngine
+Qualquer refatoração que crie mais classes sem eliminar essas duplicatas só troca um God Object por vários objetos acoplados.
+
+Análise ponto a ponto (revisada)
+1. ExifToolService (~238 linhas)
+Sua leitura: focar em localização; mover fallbacks para utilitário de ambiente.
+
+Leitura real: o serviço já faz localização e execução semântica (modo, RAW, visível, paleta, JSON). Isso está correto como cliente ExifTool de baixo nível.
+
+O problema real é que ThermalAnalysisService não usa IExifToolService — reimplementa ResolveExifToolPath, RunProcessCapture e RunProcessCaptureBinary com lógica diferente (embedded temp, caminhos legados distintos).
+
+Responsabilidade correta:
+
+Módulo	Responsabilidade
+ExifToolLocator
+Resolver caminho (PATH, tools/, embedded, config) — sem caminhos hardcoded de usuário
+ExifToolProcessRunner
+Spawn, timeout, stdout/stderr, binary capture
+ExifToolService
+API de tags FLIR (-b -RawThermalImage, -json, etc.)
+ThermalAnalysisService
+Deve consumir IExifToolService, nunca invocar processo diretamente
+Correção à sua sugestão: não “afinar” o ExifToolService — forçar todo o projeto a usá-lo e deletar a cópia em ThermalAnalysisService.
+
+2. FlirBitmapFont (~361 linhas)
+Concordo. Bem focado. Manter como utilitário puro de tipografia bitmap.
+
+Única ressalva: hoje é usado exclusivamente por ThermalModeEngine.OverlayCameraUI. Quando extrair o overlay, a dependência fica clara: FlirCameraUiRenderer → FlirBitmapFont.
+
+3. ImageMetadataPreservationService (~58 linhas)
+Concordo. Coeso, usa DI corretamente. Sem alteração.
+
+4. ThermalAnalysisService (~2.243 linhas) — prioridade máxima
+Sua leitura: extrair parsers CSV/IS2/IRG; manter como orquestrador.
+
+Leitura real: é um God Object com pelo menos 8 responsabilidades distintas:
+
+#	Responsabilidade atual	Linhas aprox.	Extrair para
+A
+Orquestração de load por extensão
+~130
+ThermalImageLoader (fachada fina)
+B
+Parser CSV
+~65
+CsvThermalParser
+C
+Parser Fluke IS2
+~180
+FlukeIs2Parser
+D
+Parser InfiRay IRG/RJPEG
+~120
+InfiRayThermalParser
+E
+Extração metadados EXIF (MetadataExtractor + ExifTool JSON)
+~350
+RadiometricMetadataExtractor
+F
+Parser binário FLIR APP1/FFF (chunks, palette, alignment, visible)
+~800
+FlirFffParser (único!)
+G
+Conversão RAW → temperatura (Planck, escala, fallback)
+~350
+RadiometricConverter
+H
+Extração/cache imagem visível (Python, OpenCV enhance)
+~400
+FlirVisibleImageExtractor
+I
+Estatísticas de medição (spot, área, linha, isoterma)
+~120
+ThermalMeasurementCalculator
+J
+Detecção de marca
+~35
+ThermalCameraBrandDetector
+Correção importante: parsers de formato não bastam. O FlirFffParser unificado é mais crítico que CsvThermalParser, porque hoje o parsing APP1 está copiado 4 vezes no mesmo arquivo (palette, alignment, visible, embedded palette).
+
+Interface sugerida:
+
+public interface IThermalFormatParser
+{
+    bool CanParse(string extension);
+    Task<ThermalImageData> ParseAsync(string path, CancellationToken ct);
+}
+public interface IRadiometricMetadataExtractor
+{
+    Task<RadiometricMetadata> ExtractAsync(string path, CancellationToken ct);
+}
+ThermalAnalysisService vira ~80 linhas: escolhe parser → enriquece metadados → converte radiometria.
+
+5. ThermalImageAnnotator (~252 linhas)
+Concordo. Manter. Sem problemas aparentes.
+
+6. ThermalModeDetectionService (vazio, não registrado no DI)
+Concordo plenamente, mas a implementação deve consolidar, não só mover:
+
+Fonte atual	O que faz
+ExifToolService.TryDetectModeAsync
+Tag ThermalImageType
+ThermalAnalysisService.MapExifModeToEnum
+Mesma lógica, via JSON
+ThermalModeEngine.TryDetectOriginalModeAsync
+Proxy para ExifTool
+MainViewModel (via ThermalProcessingState.VisualInference*)
+Inferência visual
+Responsabilidade correta de ThermalModeDetectionService:
+
+1. DetectFromExif(path)           → delega IExifToolService
+2. DetectFromLoadedMetadata(meta) → MapExifModeToEnum (mover para cá)
+3. DetectFromVisualInference(...) → se/quando existir regra visual
+4. ResolveBestMode(sources[])     → prioridade: EXIF > visual > Thermal default
+Remover TryDetectOriginalModeAsync de IThermalModeEngine. Pipeline passa a chamar IThermalModeDetectionService.
+
+7. ThermalModeEngine (~828 linhas) — sua análise subestima o problema
+Sua leitura: remover detecção; manter composição de modos.
+
+Leitura real:
+
+Bloco	Linhas	Responsabilidade real
+RenderMode + compositores MSX/PiP/Blending
+~165
+✅ Composição de modos
+TryDetectOriginalModeAsync
+~5
+❌ Detecção (mover)
+OverlayCameraUI + auxiliares
+~650
+❌ Renderização de UI FLIR — não é "modo"
+OverlayCameraUI desenha retícula, caixas de temperatura, barra de escala, logo FLIR, detecção de retícula por heurística visual. Isso é FlirCameraUiOverlayService, não composição de modo.
+
+Separação precisa:
+
+Módulo	Responsabilidade
+ThermalModeCompositor
+MSX, Blending, PiP, Visible, Thermal puro
+FlirCameraUiOverlay
+UI burned-in (escala, spot, Tmin/Tmax, retícula, logo)
+BgraBitmapUtils
+BitmapFromBgra, BgraFromBitmap, CopyOriginalRectangle
+Nota: ImageViewMode.Fusion está na interface/documentação mas não está implementado no switch de RenderMode — retorna thermalPixels no default. Isso é dívida técnica a documentar ou implementar.
+
+8. ThermalPaletteEngine (~557 linhas)
+Sua leitura: extrair LUT service; manter renderização e detecção.
+
+Leitura real — 4 responsabilidades:
+
+Responsabilidade	Extrair?
+Cache/load LUT JSON (LoadAllLutsAsync, ResolveLutSearchDirectories)
+Sim → ThermalPaletteLutRepository
+Detecção visual de paleta (DetectPaletteAsync)
+Sim → ThermalPaletteDetector
+Remapeamento capturado (ProcessSmartHD)
+Manter ou → PaletteRemapper
+Render radiométrico com DDE/histograma (RenderThermalWithPaletteAsync)
+Manter como core do engine
+Correção: separar LUT não é urgente (~130 linhas). Duplicatas de ResolveYCrCbLimitColor e UsesFlirLimitColors com ThermalRenderEngine são mais urgentes → extrair FlirColorUtils compartilhado.
+
+9. ThermalRenderEngine (~139 linhas)
+Concordo. Minimalista e bem definido.
+
+Ressalva: hoje é fallback para paleta Original + Iron grayscale. A seleção de LUT embedded (SetEmbeddedPalette) é estado mutável — considerar passar paleta via parâmetro em vez de estado interno, para thread-safety e testabilidade.
+
+10. ThermalViewPipeline (~139 linhas)
+Concordo — fachada correta.
+
+Problemas reais (pequenos):
+
+OverlayCameraUI chama _paletteEngine.LoadLutAsync(...).GetAwaiter().GetResult() — sync-over-async
+PrepareThermogramAsync acopla análise (extração paleta) ao pipeline de view
+DetectCaptureModeFromMetadataAsync delega ao mode engine (deveria ir ao detection service)
+Após refatoração, pipeline fica puramente delegador — sem lógica de negócio.
+
+11. VisualScaleDetector (~262 linhas)
+Sua leitura: extrair fallback de escala para utilitário.
+
+Leitura real: os fallbacks EXIF → matriz são a cadeia de detecção, não excesso. Faz sentido no mesmo serviço.
+
+O que deve sair:
+
+Extrair	Motivo
+TemperatureRangeCalculator.GetRange(ThermalImageData)
+Usado também em RenderEngine, PaletteEngine
+FlirColorUtils.MapTemperatureToColor(...)
+Duplicado com RenderEngine
+FlirVisualScaleFitter
+Algoritmo de grid search (~160 linhas) — testável isoladamente
+Manter VisualScaleDetector como orquestrador da cadeia: visual-fit → EXIF → matriz.
+
+DomainModels.cs — precisa separar sim
+391 linhas, 5 domínios distintos misturados. RadiometricMetadata sozinha tem 72 linhas e ~40 campos de contextos diferentes.
+
+Proposta de separação
+ThermixStudio.Core/
+├── Domain/
+│   ├── Entities/
+│   │   ├── User.cs
+│   │   ├── Inspection.cs
+│   │   ├── Thermogram.cs
+│   │   ├── ThermalMeasurement.cs
+│   │   └── ReportRecord.cs
+│   ├── Enums/
+│   │   ├── InspectionEnums.cs      (EquipmentCriticality, InspectionStatus, SeverityClass)
+│   │   ├── MeasurementEnums.cs     (MeasurementType)
+│   │   └── IllustrationEnums.cs    (IllustrationType)
+│   └── Interfaces/
+│       └── IIllustration.cs
+│
+├── Thermal/
+│   ├── Enums/
+│   │   ├── ThermalPalette.cs
+│   │   ├── ImageViewMode.cs
+│   │   ├── ThermalCameraBrand.cs
+│   │   └── VisualScaleSource.cs
+│   ├── Models/
+│   │   ├── ThermalImageData.cs
+│   │   ├── ThermalStatistics.cs
+│   │   ├── ThermalProcessingState.cs
+│   │   ├── ThermalIllustration.cs
+│   │   ├── ThermalRenderParameters.cs
+│   │   ├── ThermalRenderResult.cs
+│   │   ├── VisualScaleDetectionResult.cs
+│   │   └── LineProfileResult.cs
+│   └── Metadata/
+│       ├── RadiometricMetadata.cs       (agregador fino, referencia sub-objetos)
+│       ├── RadiometricCalibration.cs    (PlanckR1/R2/B/F/O, emissivity, distância)
+│       ├── FlirScaleMetadata.cs         (PaletteScaleMin/Max, ImageTemperatureMin/Max K)
+│       ├── FlirPaletteMetadata.cs       (PaletteName, colors, YCrCb limit colors, EmbeddedPaletteBgra)
+│       ├── FlirAlignmentMetadata.cs     (Real2IR, OffsetX/Y, PiP bounds)
+│       └── CameraIdentityMetadata.cs    (Make, Model, Serial, Detector, DateTimeOriginal)
+│
+└── Reports/
+    ├── ReportSectionRequest.cs
+    ├── ReportRequest.cs
+    └── ReportResult.cs
+Por que fragmentar RadiometricMetadata?
+Hoje ela viola Interface Segregation: quem só precisa de Planck carrega campos de PiP; quem renderiza paleta carrega serial da câmera. Separar permite:
+
+Parsers preenchem apenas o sub-objeto relevante
+Serialização JSON de ProcessingJson fica menor
+Testes unitários por subdomínio
+Alternativa pragmática (menos invasiva): manter RadiometricMetadata monolítica por ora, mas separar enums/entidades/DTOs de render — isso já resolve 80% do problema de navegação sem migration de dados.
+
+Duplicação entre RadiometricMetadata e ThermalProcessingState
+Campos repetidos:
+
+Campo	Em Metadata	Em ProcessingState
+VisualScaleMin/Max
+✅
+✅
+VisualScaleSource/Confidence
+✅
+✅
+VisibleImagePath
+✅
+✅
+DetectedViewMode / MetadataDetectedMode
+✅
+✅
+Embedded palette
+EmbeddedPaletteBgra
+EmbeddedPaletteData (Base64!)
+Recomendação: ThermalProcessingState deve referenciar valores detectados, não duplicá-los. Manter só overrides editáveis pelo usuário (LevelMin/Max, Emissivity, ViewMode escolhido, BlendFactor, etc.).
+
+Mapa de dependências alvo
+Infraestrutura
+Ingestão
+Detecção
+Renderização
+Fachada
+FlirBitmapFont
+ExifToolLocator
+ExifToolRunner
+ProcessRunner
+FlirColorUtils
+FlirFffParser
+ThermalImageLoader
+CsvParser
+FlukeIs2Parser
+InfiRayParser
+MetadataExtractor
+RadiometricConverter
+VisibleExtractor
+ModeDetectionService
+PaletteDetector
+VisualScaleDetector
+BrandDetector
+RenderEngine
+PaletteEngine
+LutRepository
+ModeCompositor
+CameraUiOverlay
+ViewPipeline
+MeasurementCalculator
+Plano de execução recomendado (ordem importa)
+Fase 0 — Consolidação (sem criar módulos novos)
+ThermalAnalysisService passa a usar IExifToolService — deletar ResolveExifToolPath/RunProcessCapture*
+Extrair FlirFffParser unificado (elimina ~600 linhas duplicadas)
+Extrair FlirColorUtils (elimina 4 cópias de YCbCr)
+Extrair TemperatureRangeCalculator
+Impacto: ~800 linhas a menos, zero mudança de API pública.
+
+Fase 1 — Separação de domínio
+Implementar ThermalModeDetectionService; remover detecção de ThermalModeEngine e duplicata em ThermalAnalysisService
+Extrair FlirCameraUiOverlay de ThermalModeEngine
+Separar DomainModels.cs em pastas (entidades / thermal / reports)
+Fase 2 — Parsers de formato
+CsvThermalParser, FlukeIs2Parser, InfiRayThermalParser
+RadiometricMetadataExtractor + RadiometricConverter
+FlirVisibleImageExtractor
+Fase 3 — Refinamento
+ThermalPaletteLutRepository
+Fragmentar RadiometricMetadata (se necessário)
+Desduplicar ThermalProcessingState vs metadata
+O que eu não faria (honestidade)
+Sugestão comum	Por que evitar agora
+Criar ThermalPaletteLutService antes da Fase 0
+Ganho pequeno (~130 linhas), adiciona indireção
+Utilitário genérico de "ambiente" para paths legados
+Melhor: configuração (appsettings.json ou registro) — paths hardcoded (C:\Users\Leonam Dias\...) não devem ir para utilitário, devem sair do código
+Separar cada enum em arquivo individual
+Overhead; agrupar por domínio é suficiente
+Micro-serviços para cada parser
+Over-engineering; interfaces IThermalFormatParser bastam
+Resumo executivo
+Sua proposta é um bom esboço arquitetural, mas trata os arquivos como tendo "responsabilidades excedentes" quando o problema principal é duplicação e acoplamento circular (Analysis ↔ ExifTool, ModeEngine ↔ UI overlay, Metadata ↔ ProcessingState).
+
+As três ações de maior retorno:
+
+ThermalAnalysisService de 2.243 → ~200 linhas via parsers + FlirFffParser + uso de IExifToolService
+ThermalModeEngine de 828 → ~170 linhas extraindo UI overlay para módulo próprio
+ThermalModeDetectionService implementado como ponto único de detecção de modo
+DomainModels.cs deve ser separado — não é urgente quanto os serviços, mas RadiometricMetadata e a duplicação com ThermalProcessingState vão continuar gerando bugs de sincronização se não forem endereçados na Fase 1.
+
+Se quiser, posso começar pela Fase 0 (consolidação ExifTool + FlirFffParser) — é a refatoração de menor risco e maior impacto imediato.
+
+Eu falei:
+Otimo! era isto que eu precisava, uma analise mais critica!, com base na sua analise, que eu concordo muito, faça esta correção sugerida, alem da separação de responsabilidades eliminando duplicação e acoplamento circular.
+Crie um plano de execução que contemple checagem de duplicações, verificação dos nomes corretos dos metodos e classes, uso correto dos Usings, namespaces e enum, não inventar nada e evitar alucinar, criar back up dos originais de forma funcional, documentar as mudanças.
+
+E o Agente atuou e fez um pouco e me respondeu:
+O que foi feito
+Backup funcional
+Cópias dos originais em: docs/refactoring/backup/2026-05-31/src/
+
+Duplicações eliminadas
+FlirColorUtils — substitui 4 cópias de ResolveYCrCbLimitColor / UsesFlirLimitColors
+ExifModeMapper — ponto único para mapear ThermalImageType → ImageViewMode
+FlirFffParser — consolida ~800 linhas duplicadas de parsing APP1/FFF
+ExifToolService — único caminho ExifTool; ThermalAnalysisService injeta IExifToolService (sem ResolveExifToolPath local)
+ThermalModeDetectionService — detecção centralizada; removida de ThermalModeEngine
+Separação de responsabilidades
+Módulo	Antes	Depois
+ThermalModeEngine
+Composição + detecção + UI (~828 lin)
+Só composição MSX/PiP/Blending (134 lin)
+FlirCameraUiOverlay
+—
+UI FLIR extraída (~770 lin)
+ThermalAnalysisService
+God object (~2243 lin)
+~1729 lin (Fase 2 ainda pendente)
+DomainModels.cs
+Monolito
+Domain/, Thermal/, Reports/
+Documentação
+Relatório completo em: docs/refactoring/REFATORACAO_MODULAR_2026-05-31.md
+
+Novos arquivos principais
+Core/Thermal/FlirColorUtils.cs
+Core/Thermal/TemperatureRangeCalculator.cs
+Core/Thermal/ExifModeMapper.cs
+Core/Services/IThermalModeDetectionService.cs
+Core/Services/IFlirCameraUiOverlay.cs
+App/Services/Thermal/FlirFffParser.cs
+App/Services/Thermal/FlirPaletteConverter.cs
+App/Services/ThermalModeDetectionService.cs
+App/Services/FlirCameraUiOverlay.cs
+Fase 2 (próxima iteração)
+ThermalAnalysisService ainda tem ~1729 linhas. A Fase 2 extrairia:
+
+CsvThermalParser, FlukeIs2Parser, InfiRayThermalParser
+RadiometricMetadataExtractor, RadiometricConverter
+FlirVisibleImageExtractor
+Isso deve reduzi-lo para ~200 linhas como orquestrador.
+
+Restaurar backup
+Copie de docs/refactoring/backup/2026-05-31/src/ de volta para src/ se precisar reverter.
+
+Quer que eu continue com a Fase 2 (parsers de formato + conversor radiométrico)?

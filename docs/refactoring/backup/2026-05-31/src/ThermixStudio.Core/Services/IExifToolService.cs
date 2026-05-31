@@ -40,16 +40,6 @@ public interface IExifToolService
     Task<string?> TryGetAllMetadataJsonAsync(string imagePath, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Lê metadados EXIF como JSON numérico (-j -n), usado na extração radiométrica.
-    /// </summary>
-    Task<string?> TryGetMetadataJsonNumericAsync(string imagePath, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Extrai bytes brutos da tag Palette (-b -Palette).
-    /// </summary>
-    Task<byte[]?> TryExtractPaletteBytesAsync(string imagePath, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Procura ExifTool no sistema (PATH, AppContext.BaseDirectory, etc).
     /// Cacheia resultado por sessão.
     /// Retorna caminho completo ou null se não encontrado.

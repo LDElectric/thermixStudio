@@ -3,7 +3,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using ThermixStudio.Core;
-using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.App.Services;
 
@@ -21,7 +20,7 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
             return Task.FromResult(Failed("Arquivo original nao encontrado."));
         }
 
-        if (FlirColorUtils.IsFlir(image.Metadata))
+        if (IsFlir(image.Metadata))
         {
             var fit = TryFitFlirVisualScaleToReference(imagePath, image);
             if (fit.Success)
@@ -46,7 +45,7 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
             });
         }
 
-        var (matrixMin, matrixMax) = TemperatureRangeCalculator.GetRange(image);
+        var (matrixMin, matrixMax) = GetTemperatureRange(image);
         return Task.FromResult(new VisualScaleDetectionResult
         {
             Success = double.IsFinite(matrixMin) && double.IsFinite(matrixMax) && matrixMax > matrixMin,
@@ -78,7 +77,7 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
             var seedMax = image.Metadata.PaletteScaleMaxC;
             if (!seedMin.HasValue || !seedMax.HasValue || seedMax.Value <= seedMin.Value)
             {
-                (seedMin, seedMax) = TemperatureRangeCalculator.GetRange(image);
+                (seedMin, seedMax) = GetTemperatureRange(image);
             }
 
             if (!seedMin.HasValue || !seedMax.HasValue || seedMax.Value <= seedMin.Value)
@@ -166,8 +165,8 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
     private static double ScoreScale(Bitmap original, ThermalImageData image, double minC, double maxC)
     {
         var palette = image.Metadata.EmbeddedPaletteBgra!;
-        var below = FlirColorUtils.ResolveYCrCbLimitColor(image.Metadata.PaletteBelowColorYCrCb, fallbackY: 50);
-        var above = FlirColorUtils.ResolveYCrCbLimitColor(image.Metadata.PaletteAboveColorYCrCb, fallbackY: 170);
+        var below = ResolveYCrCbLimitColor(image.Metadata.PaletteBelowColorYCrCb, fallbackY: 50);
+        var above = ResolveYCrCbLimitColor(image.Metadata.PaletteAboveColorYCrCb, fallbackY: 170);
         var range = Math.Max(0.01, maxC - minC);
         var total = 0.0;
         var count = 0;
@@ -188,7 +187,7 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
                 }
 
                 var t = image.Temperatures[y, x];
-                var predicted = FlirColorUtils.MapTemperatureToEmbeddedPalette(t, minC, range, palette, below, above);
+                var predicted = MapTemperatureToColor(t, minC, range, palette, below, above);
                 var dr = target.R - predicted.r;
                 var dg = target.G - predicted.g;
                 var db = target.B - predicted.b;
@@ -200,6 +199,38 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
         return count == 0 ? double.MaxValue : total / count;
     }
 
+    private static (byte r, byte g, byte b) MapTemperatureToColor(
+        double tempC,
+        double minC,
+        double range,
+        byte[] palette,
+        (byte r, byte g, byte b) below,
+        (byte r, byte g, byte b) above)
+    {
+        if (tempC < minC)
+        {
+            return below;
+        }
+
+        if (tempC > minC + range)
+        {
+            return above;
+        }
+
+        var normalized = Math.Clamp((tempC - minC) / range, 0.0, 1.0);
+        var pos = normalized * 255.0;
+        var lo = Math.Clamp((int)Math.Floor(pos), 0, 255);
+        var hi = Math.Clamp(lo + 1, 0, 255);
+        var f = pos - lo;
+        var loIdx = lo * 4;
+        var hiIdx = hi * 4;
+
+        return (
+            LerpByte(palette[loIdx + 2], palette[hiIdx + 2], f),
+            LerpByte(palette[loIdx + 1], palette[hiIdx + 1], f),
+            LerpByte(palette[loIdx], palette[hiIdx], f));
+    }
+
     private static bool IsLikelyCameraOverlay(Color color)
     {
         var max = Math.Max(color.R, Math.Max(color.G, color.B));
@@ -207,6 +238,22 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
         var brightness = (color.R + color.G + color.B) / 3;
         return brightness > 180 && max - min < 50;
     }
+
+    private static (byte r, byte g, byte b) ResolveYCrCbLimitColor(int[]? yCrCb, int fallbackY)
+    {
+        var y = Math.Clamp(yCrCb is { Length: >= 1 } ? yCrCb[0] : fallbackY, 0, 255);
+        var cr = Math.Clamp(yCrCb is { Length: >= 2 } ? yCrCb[1] : 128, 0, 255);
+        var cb = Math.Clamp(yCrCb is { Length: >= 3 } ? yCrCb[2] : 128, 0, 255);
+
+        var r = Math.Clamp(y + (1.402 * (cr - 128)), 0, 255);
+        var g = Math.Clamp(y - (0.344 * (cb - 128)) - (0.714 * (cr - 128)), 0, 255);
+        var b = Math.Clamp(y + (1.772 * (cb - 128)), 0, 255);
+
+        return ((byte)Math.Round(r), (byte)Math.Round(g), (byte)Math.Round(b));
+    }
+
+    private static byte LerpByte(byte a, byte b, double t)
+        => (byte)Math.Clamp((int)Math.Round(a + ((b - a) * t)), 0, 255);
 
     private static double ScoreToConfidence(double score)
     {
@@ -218,6 +265,31 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
         var rmse = Math.Sqrt(score / 3.0);
         return Math.Clamp(1.0 - (rmse / 95.0), 0.0, 0.95);
     }
+
+    private static (double min, double max) GetTemperatureRange(ThermalImageData image)
+    {
+        var min = double.MaxValue;
+        var max = double.MinValue;
+        for (var y = 0; y < image.Height; y++)
+        {
+            for (var x = 0; x < image.Width; x++)
+            {
+                var t = image.Temperatures[y, x];
+                if (double.IsFinite(t))
+                {
+                    if (t < min) min = t;
+                    if (t > max) max = t;
+                }
+            }
+        }
+
+        return min <= max ? (min, max) : (0, 1);
+    }
+
+    private static bool IsFlir(RadiometricMetadata metadata)
+        => metadata.Detector.Contains("FLIR", StringComparison.OrdinalIgnoreCase) ||
+           metadata.CameraModel.Contains("FLIR", StringComparison.OrdinalIgnoreCase) ||
+           metadata.Manufacturer.Contains("FLIR", StringComparison.OrdinalIgnoreCase);
 
     private static VisualScaleDetectionResult Failed(string notes) => new()
     {

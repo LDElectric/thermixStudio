@@ -10,7 +10,8 @@ if (!File.Exists(referencePath))
     throw new FileNotFoundException("Arquivo de referencia FLIR0192.jpg nao encontrado.", referencePath);
 }
 
-var analysis = new ThermalAnalysisService();
+var exifTool = new ExifToolService();
+var analysis = new ThermalAnalysisService(exifTool);
 var image = await analysis.LoadImageAsync(referencePath);
 Assert(image.Width == 320 && image.Height == 240, "Dimensoes esperadas 320x240.");
 Assert(image.Metadata.EmbeddedPaletteBgra is { Length: 1024 }, "Paleta FLIR embarcada deve ser extraida como BGRA 256.");
