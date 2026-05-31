@@ -43,28 +43,24 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                 double sx0 = width / 320.0;
                 double sy0 = height / 240.0;
 
-                // Copiar a barra de escala ORIGINAL inteira (fundo, cores, labels, borda)
-                // Só redesenharemos as cores se a paleta for diferente da original
-                bool isOriginalPalette = scaleLut.Name.Contains("embedded", StringComparison.OrdinalIgnoreCase);
+                // Dimensões exatas da barra de escala original FLIR E8xt
+                int barX1 = (int)(304 * sx0);
+                int barY1 = (int)(29 * sy0);
+                int barX2 = (int)(313 * sx0);
+                int barY2 = (int)(208 * sy0);
 
-                if (originalPixels is not null && originalPixels.Length == width * height * 4)
-                {
-                    int fullX1 = (int)(300 * sx0);
-                    int fullY1 = (int)(26 * sy0);
-                    int fullX2 = (int)(318 * sx0);
-                    int fullY2 = (int)(210 * sy0);
-                    CopyOriginalRectangle(result, originalPixels, width, height, fullX1, fullY1, fullX2, fullY2);
-                }
+                // Fundo preto da barra (inclui borda de 1px natural)
+                int bgX1 = barX1 - 1;
+                int bgY1 = barY1 - 1;
+                int bgX2 = barX2 + 1;
+                int bgY2 = barY2 + 1;
+                DrawFilledRect(result, width, height, bgX1, bgY1, bgX2 - bgX1 + 1, bgY2 - bgY1 + 1, Color.Black);
 
-                if (!isOriginalPalette)
-                {
-                    // Só redesenhar cores se a paleta mudou
-                    int barX1 = (int)(305 * sx0);
-                    int barY1 = (int)(30 * sy0);
-                    int barX2 = (int)(312 * sx0);
-                    int barY2 = (int)(207 * sy0);
-                    DrawPaletteScaleBar(result, width, height, scaleLut, barX1, barY1, barX2, barY2);
-                }
+                // Preenchimento de cores vivas (LUT pura, sem DDE)
+                DrawPaletteScaleBar(result, width, height, scaleLut, barX1, barY1, barX2, barY2);
+
+                // Borda branca/bright de 1px (como no original FLIR)
+                DrawRectBorder(result, width, height, bgX1, bgY1, bgX2, bgY2, 1, Color.FromArgb(40, 40, 45));
             }
             else if (mode != ImageViewMode.Visible && originalPixels is not null && originalPixels.Length == width * height * 4)
             {
@@ -403,6 +399,31 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             }
         }
         return bestScale;
+    }
+
+    /// <summary>
+    /// Desenha um retângulo preenchido simples diretamente no buffer BGRA.
+    /// </summary>
+    private static void DrawFilledRect(byte[] pixels, int width, int height, int x, int y, int w, int h, Color color)
+    {
+        if (w <= 0 || h <= 0) return;
+        int stride = width * 4;
+        byte r = color.R, g = color.G, b = color.B;
+        int x2 = Math.Min(x + w, width);
+        int y2 = Math.Min(y + h, height);
+
+        for (int py = Math.Max(0, y); py < y2; py++)
+        {
+            int rowStart = (py * stride) + (Math.Max(0, x) * 4);
+            for (int px = Math.Max(0, x); px < x2; px++)
+            {
+                int idx = rowStart + ((px - Math.Max(0, x)) * 4);
+                pixels[idx] = b;
+                pixels[idx + 1] = g;
+                pixels[idx + 2] = r;
+                pixels[idx + 3] = 255;
+            }
+        }
     }
 
     /// <summary>
