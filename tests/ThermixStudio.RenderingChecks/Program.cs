@@ -4,6 +4,12 @@ using ThermixStudio.App.Services;
 using ThermixStudio.Core;
 
 var root = FindRepositoryRoot();
+
+// ─── Teste de hipótese: prefixo "Máx." / "Min" / "~" ──────────────────
+Console.WriteLine("\n=== Teste de hipótese dos prefixos ===");
+await TestPrefixHypothesis(root, "FLIR0060");
+await TestPrefixHypothesis(root, "FLIR0065");
+
 var referencePath = Path.Combine(root, "FLIR0192.jpg");
 if (!File.Exists(referencePath))
 {
@@ -229,4 +235,52 @@ static void Assert(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static async Task TestPrefixHypothesis(string root, string name)
+{
+    var path = Path.Combine(root, "Termogramas", $"{name}.jpg");
+    if (!File.Exists(path)) { Console.WriteLine($"{name}: arquivo nao encontrado"); return; }
+
+    var exifTool = new ExifToolService();
+    var analysis = new ThermalAnalysisService(exifTool);
+    var img = await analysis.LoadImageAsync(path);
+
+    // Min/Max reais da matriz
+    double matMin = double.MaxValue, matMax = double.MinValue;
+    for (int y = 0; y < img.Height; y++)
+        for (int x = 0; x < img.Width; x++)
+        {
+            var t = img.Temperatures[y, x];
+            if (t < matMin) matMin = t;
+            if (t > matMax) matMax = t;
+        }
+
+    // Escala visual do EXIF
+    double? exifMin = img.Metadata.ImageTemperatureMinK.HasValue ? img.Metadata.ImageTemperatureMinK.Value - 273.15 : null;
+    double? exifMax = img.Metadata.ImageTemperatureMaxK.HasValue ? img.Metadata.ImageTemperatureMaxK.Value - 273.15 : null;
+
+    // Tspot (centro da imagem = posição padrão do retículo)
+    double spotC = img.Temperatures[img.Height / 2, img.Width / 2];
+
+    // Converter spot para Kelvin e verificar se é "dízima"
+    double spotK = spotC + 273.15;
+    bool isApproximate = Math.Abs(spotK - Math.Round(spotK)) > 0.05;
+
+    Console.WriteLine($"{name}:");
+    Console.WriteLine($"  Matriz: min={matMin:F2}°C  max={matMax:F2}°C");
+    Console.WriteLine($"  EXIF:   min={exifMin:F2}°C  max={exifMax:F2}°C");
+    Console.WriteLine($"  Tspot (centro): {spotC:F3}°C = {spotK:F3}K");
+    Console.WriteLine($"  Escala EXIF > matriz? max: {exifMax > matMax}  min: {exifMin < matMin}");
+    Console.WriteLine($"  Spot em K é dízima? {isApproximate} (delta={Math.Abs(spotK - Math.Round(spotK)):F3})");
+
+    // Hipótese "Máx.": escala max > matriz max → spot mostra "Máx."
+    bool maxPrefix = exifMax.HasValue && exifMax.Value > matMax + 0.3;
+    // Hipótese "Min": escala min < matriz min
+    bool minPrefix = exifMin.HasValue && exifMin.Value < matMin - 0.3;
+    // Hipótese "~": valor em K é dízima
+    bool tilPrefix = isApproximate;
+
+    Console.WriteLine($"  Hipótese: Máx={maxPrefix}  Min={minPrefix}  ~={tilPrefix}");
+    Console.WriteLine();
 }

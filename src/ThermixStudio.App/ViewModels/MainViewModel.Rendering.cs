@@ -149,6 +149,27 @@ public sealed partial class MainViewModel
 
         if (hasOriginal && originalPixels is not null)
         {
+            // Prefixo do spot — validado com dados reais (FLIR0060, FLIR0065)
+            string? spotLabel = _loadedImage.Metadata.SpotLabel;
+            bool spotApprox = spotIsApproximate ?? false;
+            if (string.IsNullOrWhiteSpace(spotLabel) && spotTemperature.HasValue)
+            {
+                double matMin = double.MaxValue, matMax = double.MinValue;
+                for (int y = 0; y < _loadedImage.Height; y++)
+                    for (int x = 0; x < _loadedImage.Width; x++)
+                    {
+                        var t = _loadedImage.Temperatures[y, x];
+                        if (t < matMin) matMin = t;
+                        if (t > matMax) matMax = t;
+                    }
+                if (displayScale.max > matMax + 0.3)
+                    spotLabel = "Máx.";
+                else if (displayScale.min < matMin - 0.3)
+                    spotLabel = "Min";
+                else if (Math.Abs((spotTemperature.Value + 273.15) - Math.Round(spotTemperature.Value + 273.15)) > 0.05)
+                    spotApprox = true; // Kelvin não-inteiro → "~"
+            }
+
             finalPixels = _viewPipeline.OverlayCameraUI(
                 finalPixels,
                 originalPixels,
@@ -161,9 +182,9 @@ public sealed partial class MainViewModel
                 spotTemperature,
                 null,
                 null,
-                spotIsApproximate,
+                spotApprox,
                 false,
-                spotLabel: _loadedImage.Metadata.SpotLabel,
+                spotLabel: spotLabel,
                 spotNormX: _loadedImage.Metadata.SpotNormalizedX,
                 spotNormY: _loadedImage.Metadata.SpotNormalizedY);
         }
