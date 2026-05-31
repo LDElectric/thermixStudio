@@ -284,108 +284,91 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             DrawReticle(g, reticleX, reticleY, sx, sy, whitePen);
         }
 
-        // Converter GDI+ de volta para buffer (jÃ¡ tem a retÃ­cula)
-        var rendered = BgraFromBitmap(bitmap);
-        Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
-        g.Dispose();
-        bitmap.Dispose();
+        // --- Textos com GDI+ (anti-aliased, fonte suave) ---
+        float baseFontSize = 14f * Math.Max(sx, sy);
+        using var fontRegular = new Font("Consolas", baseFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var fontSmall = new Font("Consolas", baseFontSize * 0.55f, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var fontPrefix = new Font("Consolas", baseFontSize * 0.58f, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var brushText = new SolidBrush(Color.FromArgb(245, 247, 243));
+        using var brushBg = new SolidBrush(Color.Black);
+        var sfRight = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Center };
+        var sfLeft = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
 
-        // --- Agora desenhamos as caixas e textos com fonte bitmap, sem GDI+ para as caixas ---
-        // (As caixas serÃ£o desenhadas diretamente no buffer BGRA para total controle)
+        float marginX = 4f * sx;
+        float marginY = 4f * sy;
+        float padX = 6f * sx;
+        float padY = 3f * sy;
 
-        // ---- Spot temperature (topo-esquerda) ----
+        // ---- Spot (topo-esquerda) ----
         string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
-        string spotUnit = " °C";
-        string fullSpotText = spotText + spotUnit;
+        string spotUnit = "°C";
+        var spotPrefix = !string.IsNullOrWhiteSpace(spotLabel) ? spotLabel : null;
 
-        // Ãrea mÃ¡xima disponÃ­vel para o spot (evita invadir o centro)
-        int maxSpotWidth = (int)((width / 2) - (8 * sx));
-        int maxSpotHeight = (int)(height * 0.15f);
+        var spotSize = g.MeasureString(spotText, fontRegular);
+        var unitSize = g.MeasureString(spotUnit, fontSmall);
+        float spotTotalW = spotSize.Width + unitSize.Width + padX;
+        float spotTotalH = Math.Max(spotSize.Height, unitSize.Height);
 
-        int spotScale = CalculateOptimalScaleForArea(fullSpotText, maxSpotWidth, maxSpotHeight, 10, 1, (int)(Math.Max(sx, sy) * 2.5));
-        int spotTextWidth = FlirBitmapFont.MeasureText(fullSpotText, spotScale);
-        int spotTextHeight = 10 * spotScale;
-
-        int spotMarginX = (int)(4 * spotScale);
-        int spotMarginY = (int)(2 * spotScale);
-        int boxWidth = spotTextWidth + (spotMarginX * 2);
-        int boxHeight = spotTextHeight + (spotMarginY * 2);
-
-        int boxX = (int)(4 * sx);
-        int boxY = (int)(4 * sy);
-
-        int textX = boxX + spotMarginX;
-        int textY = boxY + spotMarginY;
-
-        // Prefixo do spot (ex: "Sp1", detectado do EXIF Meas1Label)
-        if (!string.IsNullOrWhiteSpace(spotLabel))
+        if (spotPrefix != null)
         {
-            int prefixScale = Math.Max(1, spotScale * 3 / 5);
-            int prefixWidth = FlirBitmapFont.MeasureText(spotLabel, prefixScale);
-            int prefixY = textY + (spotTextHeight - 10 * prefixScale);
-
-            FlirBitmapFont.DrawText(pixels, width, height, spotLabel,
-                textX, prefixY, prefixScale,
-                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
-
-            textX += prefixWidth + (int)(2 * spotScale);
-            boxWidth += prefixWidth + (int)(2 * spotScale);
+            var prefixSize = g.MeasureString(spotPrefix, fontPrefix);
+            spotTotalW += prefixSize.Width + 2f * sx;
+            spotTotalH = Math.Max(spotTotalH, prefixSize.Height);
         }
 
-        DrawFilledRoundedRect(pixels, width, height, boxX, boxY, boxWidth, boxHeight, (int)(spotScale * 1.5f), Color.Black);
-        FlirBitmapFont.DrawText(pixels, width, height, fullSpotText,
-            textX, textY, spotScale,
-            FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+        float spotBoxW = spotTotalW + padX * 2;
+        float spotBoxH = spotTotalH + padY * 2;
+        float spotBoxX = marginX;
+        float spotBoxY = marginY;
+
+        g.FillRectangle(brushBg, spotBoxX, spotBoxY, spotBoxW, spotBoxH);
+
+        float curX = spotBoxX + padX;
+        if (spotPrefix != null)
+        {
+            var prefixSize = g.MeasureString(spotPrefix, fontPrefix);
+            g.DrawString(spotPrefix, fontPrefix, brushText, curX, spotBoxY + spotBoxH / 2 - prefixSize.Height / 2);
+            curX += prefixSize.Width + 2f * sx;
+        }
+        g.DrawString(spotText, fontRegular, brushText, curX, spotBoxY + spotBoxH / 2 - spotSize.Height / 2);
+        curX += spotSize.Width;
+        // "°C" sobrescrito
+        g.DrawString(spotUnit, fontSmall, brushText, curX, spotBoxY + padY);
 
         if (!visibleMode)
         {
             // ---- Tmax (topo-direita) ----
-            string topText = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: true);
-            int maxTopWidth = (int)(width * 0.3f);
-            int maxTopHeight = (int)(height * 0.1f);
-            int topScale = CalculateOptimalScaleForArea(topText, maxTopWidth, maxTopHeight, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
-            int topTextWidth = FlirBitmapFont.MeasureText(topText, topScale);
-            int topTextHeight = 10 * topScale;
+            string topText = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: false);
+            var topSize = g.MeasureString(topText, fontSmall);
+            float topBoxW = topSize.Width + padX * 2;
+            float topBoxH = topSize.Height + padY * 2;
+            float topBoxX = width - topBoxW - marginX;
+            float topBoxY = marginY;
 
-            int topMarginX = (int)(4 * topScale);
-            int topMarginY = (int)(2 * topScale);
-            int topBoxWidth = topTextWidth + (topMarginX * 2);
-            int topBoxHeight = topTextHeight + (topMarginY * 2);
-
-            int topBoxX = width - topBoxWidth - (int)(4 * sx);
-            int topBoxY = (int)(4 * sy);
-
-            DrawFilledRoundedRect(pixels, width, height, topBoxX, topBoxY, topBoxWidth, topBoxHeight, (int)(topScale * 1.5f), Color.Black);
-            // Texto alinhado Ã  direita dentro da caixa
-            int topTextX = topBoxX + topBoxWidth - topTextWidth - topMarginX;
-            int topTextY = topBoxY + topMarginY;
-            FlirBitmapFont.DrawText(pixels, width, height, topText,
-                topTextX, topTextY, topScale,
-                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+            g.FillRectangle(brushBg, topBoxX, topBoxY, topBoxW, topBoxH);
+            g.DrawString(topText, fontSmall, brushText, topBoxX + topBoxW / 2, topBoxY + topBoxH / 2, sfRight);
+            sfRight.Alignment = StringAlignment.Center;
 
             // ---- Tmin (base-direita) ----
-            string bottomText = FormatTemperature(scaleMinC ?? minTemperatureC, compact: true);
-            int bottomScale = CalculateOptimalScaleForArea(bottomText, maxTopWidth, maxTopHeight, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
-            int bottomTextWidth = FlirBitmapFont.MeasureText(bottomText, bottomScale);
-            int bottomTextHeight = 10 * bottomScale;
+            string bottomText = FormatTemperature(scaleMinC ?? minTemperatureC, compact: false);
+            var bottomSize = g.MeasureString(bottomText, fontSmall);
+            float bottomBoxW = bottomSize.Width + padX * 2;
+            float bottomBoxH = bottomSize.Height + padY * 2;
+            float bottomBoxX = width - bottomBoxW - marginX;
+            float bottomBoxY = height - bottomBoxH - marginY;
 
-            int bottomMarginX = (int)(4 * bottomScale);
-            int bottomMarginY = (int)(2 * bottomScale);
-            int bottomBoxWidth = bottomTextWidth + (bottomMarginX * 2);
-            int bottomBoxHeight = bottomTextHeight + (bottomMarginY * 2);
-
-            int bottomBoxX = width - bottomBoxWidth - (int)(4 * sx);
-            int bottomBoxY = height - bottomBoxHeight - (int)(4 * sy);
-
-            DrawFilledRoundedRect(pixels, width, height, bottomBoxX, bottomBoxY, bottomBoxWidth, bottomBoxHeight, (int)(bottomScale * 1.5f), Color.Black);
-            int bottomTextX = bottomBoxX + bottomBoxWidth - bottomTextWidth - bottomMarginX;
-            int bottomTextY = bottomBoxY + bottomMarginY;
-            FlirBitmapFont.DrawText(pixels, width, height, bottomText,
-                bottomTextX, bottomTextY, bottomScale,
-                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+            g.FillRectangle(brushBg, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH);
+            g.DrawString(bottomText, fontSmall, brushText, bottomBoxX + bottomBoxW / 2, bottomBoxY + bottomBoxH / 2, sfRight);
         }
 
-        // Opcional: desenhar a barra de escala (paleta) se necessÃ¡rio (jÃ¡ tratado fora)
+        sfRight.Dispose();
+        sfLeft.Dispose();
+
+        // Converter GDI+ de volta para buffer (reticula + textos)
+        var rendered = BgraFromBitmap(bitmap);
+        Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
+        g.Dispose();
+        bitmap.Dispose();
     }
 
     /// <summary>
