@@ -640,9 +640,16 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         if (centerWhiteRatio > 0.50)
             return false;
 
-        for (var y = minY + outer; y <= maxY - outer; y++)
+        // Restringir busca a 15px do centro (reticle E8xt sempre próximo)
+        int searchR = (int)(15.0 * Math.Max(sx, sy));
+        int searchMinX = Math.Max(minX + outer, (width / 2) - searchR);
+        int searchMaxX = Math.Min(maxX - outer, (width / 2) + searchR);
+        int searchMinY = Math.Max(minY + outer, (height / 2) - searchR);
+        int searchMaxY = Math.Min(maxY - outer, (height / 2) + searchR);
+
+        for (var y = searchMinY; y <= searchMaxY; y++)
         {
-            for (var x = minX + outer; x <= maxX - outer; x++)
+            for (var x = searchMinX; x <= searchMaxX; x++)
             {
                 var score = 0;
                 var samples = 0;
@@ -669,13 +676,8 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             }
         }
 
-        // Só aceita se encontrou pixels suficientes (≥12% de cobertura, mínimo 15 pixels)
-        double ratio = (double)bestScore / bestSamples;
-        if (ratio < 0.12 && bestScore < 15) return false;
-
-        // Se o centro detectado está muito longe do centro geométrico (>15px), rejeitar
-        double distFromDefault = Math.Sqrt((centerX - width / 2.0) * (centerX - width / 2.0) + (centerY - height / 2.0) * (centerY - height / 2.0));
-        if (distFromDefault > 15.0 * Math.Max(sx, sy)) return false;
+        // Só aceita se encontrou no mínimo 12 pixels de retículo
+        if (bestScore < 12) return false;
 
         return true;
     }
