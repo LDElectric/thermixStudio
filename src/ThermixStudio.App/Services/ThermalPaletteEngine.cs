@@ -243,8 +243,14 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         }
 
         // 2. Limitar picos do histograma (Plateau) para que fundos gigantes não esmaguem o contraste
-        // Retornando para 0.1% que trouxe bons resultados iniciais no contraste geral
-        int plateau = Math.Max(1, (int)(width * height * 0.001));
+        // Usa 0.05% como padrão (mais próximo do comportamento FLIR); ajustável via PaletteStretch
+        double plateauFraction = 0.0005;
+        if (metadata?.PaletteStretch.HasValue == true && metadata.PaletteStretch.Value > 0)
+        {
+            // PaletteStretch da câmera: valores típicos 1-255, mapear para fração 0.01%-0.5%
+            plateauFraction = Math.Clamp(metadata.PaletteStretch.Value / 50000.0, 0.0001, 0.005);
+        }
+        int plateau = Math.Max(1, (int)(width * height * plateauFraction));
         double[] clippedHist = new double[numBins];
         for (int b = 0; b < numBins; b++)
         {
@@ -277,9 +283,9 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
 
         // 3. Mapear os valores pelo CDF Equalizado (Distribuição Não-Linear igual FLIR)
         i = 0;
-        // Limites de clipping do sensor da câmera (defaults FLIR)
-        double sensorMinC = -40.0;
-        double sensorMaxC = 280.0;
+        // Limites de clipping do sensor — usar valores da câmera se disponíveis, defaults FLIR caso contrário
+        double sensorMinC = metadata?.CameraTemperatureMinClip ?? -40.0;
+        double sensorMaxC = metadata?.CameraTemperatureMaxClip ?? 280.0;
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -455,9 +461,7 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
     private static ThermalPaletteLutData? TryBuildEmbeddedLut(string paletteName, RadiometricMetadata? metadata)
     {
         if (metadata?.EmbeddedPaletteBgra is not { Length: 256 * 4 } embedded)
-        {
             return null;
-        }
 
         var requestedOriginal = paletteName.Equals("Original", StringComparison.OrdinalIgnoreCase);
         var matchesMetadataName = !string.IsNullOrWhiteSpace(metadata.PaletteName) &&
@@ -466,20 +470,36 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
             paletteName.Equals(metadata.DetectedPalette.Value.ToString(), StringComparison.OrdinalIgnoreCase);
 
         if (!requestedOriginal && !matchesMetadataName && !matchesDetectedPalette)
-        {
             return null;
-        }
 
-        var colors = new List<int[]>(256);
-        for (var i = 0; i < 256; i++)
+        // A câmera FLIR pode usar menos de 256 cores (ex: Iron = 224).
+        // Reamostrar a paleta embedded para o tamanho real usado pela câmera.
+        int cameraColors = metadata.PaletteColors ?? 256;
+        cameraColors = Math.Clamp(cameraColors, 32, 256);
+
+        var colors = new List<int[]>((int)(cameraColors * 1.1));
+        for (var i = 0; i < cameraColors; i++)
         {
-            var idx = i * 4;
-            colors.Add([embedded[idx + 2], embedded[idx + 1], embedded[idx]]);
+            // Mapear índice da paleta da câmera (0..cameraColors-1)
+            // para o buffer BGRA de 256 entradas via interpolação
+            double srcPos = (double)i / (cameraColors - 1) * 255.0;
+            int lo = (int)Math.Floor(srcPos);
+            int hi = Math.Min(lo + 1, 255);
+            double t = srcPos - lo;
+
+            int loIdx = lo * 4;
+            int hiIdx = hi * 4;
+
+            colors.Add([
+                FlirColorUtils.LerpByte(embedded[loIdx + 2], embedded[hiIdx + 2], t), // R
+                FlirColorUtils.LerpByte(embedded[loIdx + 1], embedded[hiIdx + 1], t), // G
+                FlirColorUtils.LerpByte(embedded[loIdx],     embedded[hiIdx],     t)  // B
+            ]);
         }
 
         return new ThermalPaletteLutData
         {
-            Name = $"{paletteName} (embedded)",
+            Name = $"{paletteName} (embedded, {cameraColors}c)",
             Rgb = colors
         };
     }

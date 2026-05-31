@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using ThermixStudio.App.Services.Thermal;
 using ThermixStudio.Core;
 using ThermixStudio.Core.Thermal;
 
@@ -17,35 +18,37 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
         cancellationToken.ThrowIfCancellationRequested();
 
         if (!File.Exists(imagePath))
-        {
             return Task.FromResult(Failed("Arquivo original nao encontrado."));
-        }
 
-        if (FlirColorUtils.IsFlir(image.Metadata))
+        // Prioridade 1: visual-fit da barra de escala queimada no JPEG
+        // (funciona para qualquer câmera com paleta embedded, não só FLIR)
+        if (image.Metadata.EmbeddedPaletteBgra is not null && image.Metadata.EmbeddedPaletteBgra.Length == 256 * 4)
         {
-            var fit = TryFitFlirVisualScaleToReference(imagePath, image);
-            if (fit.Success)
-            {
+            var fit = TryFitVisualScaleToReference(imagePath, image);
+            if (fit.Success && fit.Confidence >= 0.3)
                 return Task.FromResult(fit);
-            }
         }
 
-        if (image.Metadata.PaletteScaleMinC.HasValue &&
-            image.Metadata.PaletteScaleMaxC.HasValue &&
-            image.Metadata.PaletteScaleMaxC.Value > image.Metadata.PaletteScaleMinC.Value)
+        // Prioridade 2: ImageTemperatureMin/Max do EXIF (Level/Span em Kelvin → °C)
+        if (image.Metadata.ImageTemperatureMinK.HasValue &&
+            image.Metadata.ImageTemperatureMaxK.HasValue &&
+            image.Metadata.ImageTemperatureMaxK.Value > image.Metadata.ImageTemperatureMinK.Value)
         {
+            var minC = RadiometricMetadataExtractor.NormalizeExifTemperatureToCelsius(image.Metadata.ImageTemperatureMinK.Value);
+            var maxC = RadiometricMetadataExtractor.NormalizeExifTemperatureToCelsius(image.Metadata.ImageTemperatureMaxK.Value);
             return Task.FromResult(new VisualScaleDetectionResult
             {
                 Success = true,
-                MinC = image.Metadata.PaletteScaleMinC.Value,
-                MaxC = image.Metadata.PaletteScaleMaxC.Value,
+                MinC = Math.Round(minC, 1),
+                MaxC = Math.Round(maxC, 1),
                 Source = VisualScaleSource.ExifImageTemperature,
-                Confidence = 0.35,
+                Confidence = 0.5,
                 DetectorName = nameof(VisualScaleDetector),
-                Notes = "Fallback: ImageTemperatureMin/Max do EXIF. Pode diferir da escala queimada no JPEG."
+                Notes = "ImageTemperatureMin/Max do EXIF (Level/Span da câmera)."
             });
         }
 
+        // Prioridade 3: range da matriz radiométrica (último recurso)
         var (matrixMin, matrixMax) = TemperatureRangeCalculator.GetRange(image);
         return Task.FromResult(new VisualScaleDetectionResult
         {
@@ -59,7 +62,7 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
         });
     }
 
-    private static VisualScaleDetectionResult TryFitFlirVisualScaleToReference(string imagePath, ThermalImageData image)
+    private static VisualScaleDetectionResult TryFitVisualScaleToReference(string imagePath, ThermalImageData image)
     {
         if (image.Metadata.EmbeddedPaletteBgra is null || image.Metadata.EmbeddedPaletteBgra.Length != 256 * 4)
         {
@@ -117,7 +120,7 @@ public sealed class VisualScaleDetector : IVisualScaleDetector
                 MaxC = Math.Round(best.max, 1),
                 Source = VisualScaleSource.VisualFitToReference,
                 Confidence = confidence,
-                DetectorName = "FLIR visual-fit",
+                DetectorName = "visual-fit",
                 Notes = $"Escala estimada por comparacao com JPEG original. Score medio RGB^2={best.score:F1}."
             };
         }

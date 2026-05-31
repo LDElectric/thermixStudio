@@ -189,6 +189,8 @@ internal static class RadiometricMetadataExtractor
             metadata.PiPX2 ??= ReadInt(first, "PiPX2");
             metadata.PiPY1 ??= ReadInt(first, "PiPY1");
             metadata.PiPY2 ??= ReadInt(first, "PiPY2");
+            metadata.CameraTemperatureMinClip ??= ReadDouble(first, "CameraTemperatureMinClip");
+            metadata.CameraTemperatureMaxClip ??= ReadDouble(first, "CameraTemperatureMaxClip");
 
             var rawScaleMin = ReadDouble(first, "ImageTemperatureMin");
             var rawScaleMax = ReadDouble(first, "ImageTemperatureMax");

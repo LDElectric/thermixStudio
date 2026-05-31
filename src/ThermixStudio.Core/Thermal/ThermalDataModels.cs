@@ -92,6 +92,8 @@ public sealed class RadiometricMetadata
     public int? PiPX2 { get; set; }
     public int? PiPY1 { get; set; }
     public int? PiPY2 { get; set; }
+    public double? CameraTemperatureMinClip { get; set; }
+    public double? CameraTemperatureMaxClip { get; set; }
 }
 
 public sealed class ThermalProcessingState

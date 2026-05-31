@@ -39,15 +39,12 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             {
                 double sx0 = width / 320.0;
                 double sy0 = height / 240.0;
-                DrawPaletteScaleBar(
-                    result,
-                    width,
-                    height,
-                    scaleLut,
-                    (int)(305 * sx0),
-                    (int)(30 * sy0),
-                    (int)(312 * sx0),
-                    (int)(207 * sy0));
+                int barX1 = (int)(305 * sx0);
+                int barY1 = (int)(30 * sy0);
+                int barX2 = (int)(312 * sx0);
+                int barY2 = (int)(207 * sy0);
+                DrawPaletteScaleBar(result, width, height, scaleLut, barX1, barY1, barX2, barY2);
+                DrawRectBorder(result, width, height, barX1 - 1, barY1 - 1, barX2 + 1, barY2 + 1, 1, Color.Black);
             }
             else if (mode != ImageViewMode.Visible && originalPixels is not null && originalPixels.Length == width * height * 4)
             {
@@ -126,6 +123,10 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                     (int)(30 * sy),
                     (int)(313 * sx),
                     (int)(207 * sy));
+                DrawRectBorder(result, width, height,
+                    (int)(304 * sx) - 1, (int)(30 * sy) - 1,
+                    (int)(313 * sx) + 1, (int)(207 * sy) + 1,
+                    1, Color.Black);
             }
             else if (copyOriginalScaleBar)
             {
@@ -426,6 +427,52 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         }
     }
 
+    private static void DrawRectBorder(byte[] pixels, int width, int height, int x, int y, int w, int h, int thickness, Color color)
+    {
+        if (w <= 0 || h <= 0) return;
+        int stride = width * 4;
+        byte r = color.R, g = color.G, b = color.B;
+        int x2 = x + w;
+        int y2 = y + h;
+
+        for (int t = 0; t < thickness; t++)
+        {
+            int bx = x + t;
+            int by = y + t;
+            int bx2 = x2 - t;
+            int by2 = y2 - t;
+
+            // Top edge
+            for (int px = Math.Max(0, bx); px <= Math.Min(width - 1, bx2); px++)
+            {
+                int py = Math.Clamp(by, 0, height - 1);
+                int idx = (py * stride) + (px * 4);
+                pixels[idx] = b; pixels[idx + 1] = g; pixels[idx + 2] = r; pixels[idx + 3] = 255;
+            }
+            // Bottom edge
+            for (int px = Math.Max(0, bx); px <= Math.Min(width - 1, bx2); px++)
+            {
+                int py = Math.Clamp(by2, 0, height - 1);
+                int idx = (py * stride) + (px * 4);
+                pixels[idx] = b; pixels[idx + 1] = g; pixels[idx + 2] = r; pixels[idx + 3] = 255;
+            }
+            // Left edge
+            for (int py = Math.Max(0, by + 1); py <= Math.Min(height - 1, by2 - 1); py++)
+            {
+                int px = Math.Clamp(bx, 0, width - 1);
+                int idx = (py * stride) + (px * 4);
+                pixels[idx] = b; pixels[idx + 1] = g; pixels[idx + 2] = r; pixels[idx + 3] = 255;
+            }
+            // Right edge
+            for (int py = Math.Max(0, by + 1); py <= Math.Min(height - 1, by2 - 1); py++)
+            {
+                int px = Math.Clamp(bx2, 0, width - 1);
+                int idx = (py * stride) + (px * 4);
+                pixels[idx] = b; pixels[idx + 1] = g; pixels[idx + 2] = r; pixels[idx + 3] = 255;
+            }
+        }
+    }
+
     private static void DrawReticle(Graphics g, float cx, float cy, float sx, float sy, Pen pen)
     {
         pen.StartCap = System.Drawing.Drawing2D.LineCap.Square;
@@ -558,16 +605,32 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         return compact ? formattedValue : $"{formattedValue} C";
     }
 
+    /// <summary>
+    /// Preserva o logo FLIR copiando pixels claros de baixa saturação do original.
+    /// Usa thresholds relaxados (JPEG compression + anti-aliasing) e filtro
+    /// de componente conectado para eliminar ruído.
+    /// </summary>
     private static void OverlayFlirLogoOnly(byte[] result, byte[] originalPixels, int width, int height)
     {
         int stride = width * 4;
         double sx = width / 320.0;
         double sy = height / 240.0;
-        int x1 = Math.Clamp((int)(2 * sx), 0, width - 1);
-        int y1 = Math.Clamp((int)(216 * sy), 0, height - 1);
-        int x2 = Math.Clamp((int)(57 * sx), 0, width - 1);
-        int y2 = Math.Clamp((int)(235 * sy), 0, height - 1);
 
+        // Região expandida para capturar variações de posição do logo
+        int x1 = Math.Clamp((int)(1 * sx), 0, width - 1);
+        int y1 = Math.Clamp((int)(212 * sy), 0, height - 1);
+        int x2 = Math.Clamp((int)(62 * sx), 0, width - 1);
+        int y2 = Math.Clamp((int)(237 * sy), 0, height - 1);
+        int logoW = x2 - x1 + 1;
+        int logoH = y2 - y1 + 1;
+
+        // Thresholds relaxados para JPEG compression e anti-aliasing
+        const int maxSaturation = 55;
+        const int minBrightness = 140;
+        const int minComponentSize = 6;
+
+        // Passo 1: criar máscara binária dos pixels candidatos
+        var mask = new bool[logoW, logoH];
         for (int y = y1; y <= y2; y++)
         {
             for (int x = x1; x <= x2; x++)
@@ -576,18 +639,68 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                 byte ob = originalPixels[idx];
                 byte og = originalPixels[idx + 1];
                 byte or_ = originalPixels[idx + 2];
-                int brightness = (or_ + og + ob) / 3;
                 int maxC = Math.Max(or_, Math.Max(og, ob));
                 int minC = Math.Min(or_, Math.Min(og, ob));
                 int sat = maxC - minC;
+                int bright = (or_ + og + ob) / 3;
+                mask[x - x1, y - y1] = sat <= maxSaturation && bright >= minBrightness;
+            }
+        }
 
-                if (sat <= 35 && brightness > 170)
+        // Passo 2: connected-component filter (elimina pixels isolados)
+        var keep = new bool[logoW, logoH];
+        var visited = new bool[logoW, logoH];
+
+        for (int my = 0; my < logoH; my++)
+        {
+            for (int mx = 0; mx < logoW; mx++)
+            {
+                if (!mask[mx, my] || visited[mx, my]) continue;
+
+                // BFS para medir tamanho do componente
+                var q = new Queue<(int, int)>();
+                var comp = new List<(int, int)>();
+                q.Enqueue((mx, my));
+                visited[mx, my] = true;
+
+                while (q.Count > 0)
                 {
-                    result[idx] = ob;
-                    result[idx + 1] = og;
-                    result[idx + 2] = or_;
-                    result[idx + 3] = originalPixels[idx + 3];
+                    var (cx, cy) = q.Dequeue();
+                    comp.Add((cx, cy));
+
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int nx = cx + dx, ny = cy + dy;
+                            if (nx >= 0 && nx < logoW && ny >= 0 && ny < logoH &&
+                                mask[nx, ny] && !visited[nx, ny])
+                            {
+                                visited[nx, ny] = true;
+                                q.Enqueue((nx, ny));
+                            }
+                        }
                 }
+
+                // Só preserva componentes com tamanho mínimo
+                if (comp.Count >= minComponentSize)
+                {
+                    foreach (var (cx, cy) in comp)
+                        keep[cx, cy] = true;
+                }
+            }
+        }
+
+        // Passo 3: copiar pixels válidos do original
+        for (int y = y1; y <= y2; y++)
+        {
+            for (int x = x1; x <= x2; x++)
+            {
+                if (!keep[x - x1, y - y1]) continue;
+                int idx = (y * stride) + (x * 4);
+                result[idx] = originalPixels[idx];
+                result[idx + 1] = originalPixels[idx + 1];
+                result[idx + 2] = originalPixels[idx + 2];
+                result[idx + 3] = originalPixels[idx + 3];
             }
         }
     }
@@ -741,6 +854,11 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         int startY = Math.Clamp(Math.Min(y1, y2), 0, height - 1);
         int endY = Math.Clamp(Math.Max(y1, y2), 0, height - 1);
 
+        // Thresholds relaxados para JPEG compression
+        const int maxSaturation = 55;
+        const int darkThreshold = 72;
+        const int brightThreshold = 155;
+
         for (int y = startY; y <= endY; y++)
         {
             for (int x = startX; x <= endX; x++)
@@ -755,7 +873,7 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                 int min = Math.Min(or_, Math.Min(og, ob));
                 int saturation = max - min;
 
-                if (saturation <= 45 && (brightness <= 72 || brightness >= 165))
+                if (saturation <= maxSaturation && (brightness <= darkThreshold || brightness >= brightThreshold))
                 {
                     result[idx] = ob;
                     result[idx + 1] = og;
