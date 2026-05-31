@@ -93,7 +93,8 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                 spotIsApproximate ?? false,
                 reticleX,
                 reticleY,
-                drawReticle: true);
+                drawReticle: true,
+                spotLabel: spotLabel);
 
             if (preferOriginalTemperatureText &&
                 originalPixels is not null &&
@@ -237,7 +238,8 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         bool spotIsApproximate,
         double? reticleCenterX = null,
         double? reticleCenterY = null,
-        bool drawReticle = true)
+        bool drawReticle = true,
+        string? spotLabel = null)
     {
         float sx = width / 320f;
         float sy = height / 240f;
