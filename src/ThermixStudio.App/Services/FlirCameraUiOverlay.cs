@@ -290,127 +290,96 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         g.Dispose();
         bitmap.Dispose();
 
-        // --- Caixas e textos ---
+        // --- Caixas (buffer direto) + textos (GDI+ overlay com Lucida Console) ---
         using var brushText = new SolidBrush(Color.FromArgb(245, 247, 243));
 
-        // ---- Spot temperature (topo-esquerda) ----
+        // ---- Spot (topo-esquerda) ----
         string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
         string spotUnit = "°C";
+        string fullSpotText = spotText + spotUnit;
 
         int maxSpotWidth = (int)((width / 2) - (8 * sx));
         int maxSpotHeight = (int)(height * 0.15f);
-        int spotScale = CalculateOptimalScaleForArea(spotText + spotUnit, maxSpotWidth, maxSpotHeight, 10, 1, (int)(Math.Max(sx, sy) * 2.5));
-        float spotFontSize = 10f * spotScale;
-        float spotSmallSize = spotFontSize * 0.55f;
-
+        int spotScale = CalculateOptimalScaleForArea(fullSpotText, maxSpotWidth, maxSpotHeight, 10, 1, (int)(Math.Max(sx, sy) * 2.5));
+        int spotTextWidth = FlirBitmapFont.MeasureText(fullSpotText, spotScale);
+        int spotTextHeight = 10 * spotScale;
         int spotMarginX = (int)(4 * spotScale);
         int spotMarginY = (int)(2 * spotScale);
-
-        // Medir com GDI+ temporário
-        using var measureBmp = new Bitmap(1, 1);
-        using var measureG = Graphics.FromImage(measureBmp);
-        using var fontSpotVal = new Font("Consolas", spotFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
-        using var fontSpotSmall = new Font("Consolas", spotSmallSize, FontStyle.Regular, GraphicsUnit.Pixel);
-        var valSize = measureG.MeasureString(spotText, fontSpotVal);
-        var unitSize = measureG.MeasureString(spotUnit, fontSpotSmall);
-        int boxWidth = (int)(valSize.Width + unitSize.Width) + (spotMarginX * 2);
-        int boxHeight = Math.Max((int)valSize.Height, (int)unitSize.Height) + (spotMarginY * 2);
+        int boxWidth = spotTextWidth + (spotMarginX * 2);
+        int boxHeight = spotTextHeight + (spotMarginY * 2);
         int boxX = (int)(4 * sx);
         int boxY = (int)(4 * sy);
-        measureG.Dispose();
-        measureBmp.Dispose();
 
-        // Prefixo
         int prefixW = 0;
         if (!string.IsNullOrWhiteSpace(spotLabel))
         {
-            float prefixSize = spotFontSize * 0.58f;
-            using var fontPrefix = new Font("Consolas", prefixSize, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var mBmp = new Bitmap(1, 1);
-            using var mG = Graphics.FromImage(mBmp);
-            var pref = mG.MeasureString(spotLabel, fontPrefix);
-            prefixW = (int)pref.Width + (int)(2 * spotScale);
+            int prefixScale = Math.Max(1, spotScale * 3 / 5);
+            prefixW = FlirBitmapFont.MeasureText(spotLabel, prefixScale) + (int)(2 * spotScale);
             boxWidth += prefixW;
-            mG.Dispose();
-            mBmp.Dispose();
         }
 
-        // Caixa preta arredondada
         DrawFilledRoundedRect(pixels, width, height, boxX, boxY, boxWidth, boxHeight, (int)(spotScale * 1.5f), Color.Black);
 
-        // Texto GDI+ sobre a caixa
-        using var textBmp = BitmapFromBgra(width, height, pixels);
-        using var textG = Graphics.FromImage(textBmp);
-        textG.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        int textX = boxX + spotMarginX + prefixW;
-        int textY = boxY + spotMarginY;
+        // Texto GDI+ overlay (Lucida Console = sem zero cortado)
+        DrawGdiText(pixels, width, height, boxX + spotMarginX + prefixW, boxY + spotMarginY,
+            fullSpotText, 10f * spotScale, null);
 
         if (!string.IsNullOrWhiteSpace(spotLabel))
         {
-            float prefixSize = spotFontSize * 0.58f;
-            using var fontPrefix = new Font("Consolas", prefixSize, FontStyle.Regular, GraphicsUnit.Pixel);
-            textG.DrawString(spotLabel, fontPrefix, brushText, boxX + spotMarginX, textY + (boxHeight - spotMarginY * 2) / 2 - prefixSize / 2 + 2);
+            int prefixScale = Math.Max(1, spotScale * 3 / 5);
+            DrawGdiText(pixels, width, height, boxX + spotMarginX, boxY + spotMarginY + (spotTextHeight - 10 * prefixScale),
+                spotLabel, 10f * prefixScale, null);
         }
-        textG.DrawString(spotText, fontSpotVal, brushText, textX, textY);
-        textG.DrawString(spotUnit, fontSpotSmall, brushText, textX + valSize.Width, textY + (valSize.Height - unitSize.Height) * 0.7f);
 
         if (!visibleMode)
         {
             // ---- Tmax (topo-direita) ----
-            string topText = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: false);
+            string topText = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: true);
             int maxTopW = (int)(width * 0.3f);
             int maxTopH = (int)(height * 0.1f);
             int topScale = CalculateOptimalScaleForArea(topText, maxTopW, maxTopH, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
-            float topFontSize = 10f * topScale;
-            using var fontTop = new Font("Consolas", topFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var mBmp2 = new Bitmap(1, 1);
-            using var mG2 = Graphics.FromImage(mBmp2);
-            var topSize = mG2.MeasureString(topText, fontTop);
-            mG2.Dispose(); mBmp2.Dispose();
+            int topTextWidth = FlirBitmapFont.MeasureText(topText, topScale);
             int topMarginX = (int)(4 * topScale);
             int topMarginY = (int)(2 * topScale);
-            int topBoxW = (int)topSize.Width + (topMarginX * 2);
-            int topBoxH = (int)topSize.Height + (topMarginY * 2);
+            int topBoxW = topTextWidth + (topMarginX * 2);
+            int topBoxH = 10 * topScale + (topMarginY * 2);
             int topBoxX = width - topBoxW - (int)(4 * sx);
             int topBoxY = (int)(4 * sy);
             DrawFilledRoundedRect(pixels, width, height, topBoxX, topBoxY, topBoxW, topBoxH, (int)(topScale * 1.5f), Color.Black);
-            using var topBmp = BitmapFromBgra(width, height, pixels);
-            using var topG = Graphics.FromImage(topBmp);
-            topG.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            topG.DrawString(topText, fontTop, brushText, topBoxX + topBoxW - topSize.Width - topMarginX, topBoxY + topMarginY);
-            var topRendered = BgraFromBitmap(topBmp);
-            Buffer.BlockCopy(topRendered, 0, pixels, 0, Math.Min(pixels.Length, topRendered.Length));
-            topG.Dispose(); topBmp.Dispose();
+            DrawGdiText(pixels, width, height, topBoxX + topBoxW - topTextWidth - topMarginX, topBoxY + topMarginY,
+                topText, 10f * topScale, null);
 
             // ---- Tmin (base-direita) ----
-            string bottomText = FormatTemperature(scaleMinC ?? minTemperatureC, compact: false);
+            string bottomText = FormatTemperature(scaleMinC ?? minTemperatureC, compact: true);
             int bottomScale = CalculateOptimalScaleForArea(bottomText, maxTopW, maxTopH, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
-            float bottomFontSize = 10f * bottomScale;
-            using var fontBottom = new Font("Consolas", bottomFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var mBmp3 = new Bitmap(1, 1);
-            using var mG3 = Graphics.FromImage(mBmp3);
-            var bottomSize = mG3.MeasureString(bottomText, fontBottom);
-            mG3.Dispose(); mBmp3.Dispose();
+            int bottomTextWidth = FlirBitmapFont.MeasureText(bottomText, bottomScale);
             int bottomMarginX = (int)(4 * bottomScale);
             int bottomMarginY = (int)(2 * bottomScale);
-            int bottomBoxW = (int)bottomSize.Width + (bottomMarginX * 2);
-            int bottomBoxH = (int)bottomSize.Height + (bottomMarginY * 2);
+            int bottomBoxW = bottomTextWidth + (bottomMarginX * 2);
+            int bottomBoxH = 10 * bottomScale + (bottomMarginY * 2);
             int bottomBoxX = width - bottomBoxW - (int)(4 * sx);
             int bottomBoxY = height - bottomBoxH - (int)(4 * sy);
             DrawFilledRoundedRect(pixels, width, height, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH, (int)(bottomScale * 1.5f), Color.Black);
-            using var bottomBmp = BitmapFromBgra(width, height, pixels);
-            using var bottomG = Graphics.FromImage(bottomBmp);
-            bottomG.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            bottomG.DrawString(bottomText, fontBottom, brushText, bottomBoxX + bottomBoxW - bottomSize.Width - bottomMarginX, bottomBoxY + bottomMarginY);
-            var bottomRendered = BgraFromBitmap(bottomBmp);
-            Buffer.BlockCopy(bottomRendered, 0, pixels, 0, Math.Min(pixels.Length, bottomRendered.Length));
-            bottomG.Dispose(); bottomBmp.Dispose();
+            DrawGdiText(pixels, width, height, bottomBoxX + bottomBoxW - bottomTextWidth - bottomMarginX, bottomBoxY + bottomMarginY,
+                bottomText, 10f * bottomScale, null);
         }
+    }
 
-        // Aplicar textos do spot
-        var spotRendered = BgraFromBitmap(textBmp);
-        Buffer.BlockCopy(spotRendered, 0, pixels, 0, Math.Min(pixels.Length, spotRendered.Length));
-        textG.Dispose(); textBmp.Dispose();
+    /// <summary>Renderiza texto suave via GDI+ overlay no buffer BGRA.</summary>
+    private static void DrawGdiText(byte[] pixels, int width, int height, int x, int y, string text, float fontSize, Font? font = null)
+    {
+        using var bmp = BitmapFromBgra(width, height, pixels);
+        using var gfx = Graphics.FromImage(bmp);
+        gfx.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        gfx.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+        using var fnt = font ?? new Font("Lucida Console", fontSize, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var brush = new SolidBrush(Color.FromArgb(245, 247, 243));
+        gfx.DrawString(text, fnt, brush, x, y);
+        var result = BgraFromBitmap(bmp);
+        Buffer.BlockCopy(result, 0, pixels, 0, Math.Min(pixels.Length, result.Length));
+        gfx.Dispose();
+        bmp.Dispose();
+    }
         bitmap.Dispose();
     }
 
