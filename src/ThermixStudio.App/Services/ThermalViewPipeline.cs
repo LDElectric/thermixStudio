@@ -113,7 +113,9 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
         double? minTemperatureC = null,
         bool? spotIsApproximate = null,
         bool preferOriginalTemperatureText = false,
-        string? spotLabel = null)
+        string? spotLabel = null,
+        double? spotNormX = null,
+        double? spotNormY = null)
     {
         ThermalPaletteLutData? scaleLut = null;
         bool copyOriginalScaleBar = mode != ImageViewMode.Visible;
@@ -143,7 +145,9 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
             minTemperatureC,
             spotIsApproximate,
             preferOriginalTemperatureText,
-            spotLabel);
+            spotLabel,
+            spotNormX,
+            spotNormY);
     }
 
     private static byte[] CopyBitmapToBgra(Bitmap bitmap)

@@ -27,7 +27,9 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         double? minTemperatureC = null,
         bool? spotIsApproximate = null,
         bool preferOriginalTemperatureText = false,
-        string? spotLabel = null)
+        string? spotLabel = null,
+        double? spotNormX = null,
+        double? spotNormY = null)
     {
         if (finalPixels is null || finalPixels.Length != width * height * 4)
             return Array.Empty<byte>();
@@ -72,10 +74,21 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                     (int)(193 * sy0));
             }
 
+            // Centro do retículo: prioridade à posição do spot da câmera (EXIF)
+            // A mira da câmera = posição do Tspot, NÃO o centro geométrico
             var reticleX = width / 2.0;
             var reticleY = height / 2.0;
-            if (originalPixels is not null &&
-                originalPixels.Length == width * height * 4)
+            bool reticleFromSpot = false;
+
+            if (spotNormX.HasValue && spotNormY.HasValue &&
+                spotNormX.Value >= 0 && spotNormX.Value <= 1 &&
+                spotNormY.Value >= 0 && spotNormY.Value <= 1)
+            {
+                reticleX = spotNormX.Value * (width - 1);
+                reticleY = spotNormY.Value * (height - 1);
+                reticleFromSpot = true;
+            }
+            else if (originalPixels is not null && originalPixels.Length == width * height * 4)
             {
                 TryDetectFlirReticleCenter(originalPixels, width, height, out reticleX, out reticleY);
             }

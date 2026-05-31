@@ -162,7 +162,10 @@ public sealed partial class MainViewModel
                 null,
                 null,
                 spotIsApproximate,
-                false);
+                false,
+                spotLabel: _loadedImage.Metadata.SpotLabel,
+                spotNormX: _loadedImage.Metadata.SpotNormalizedX,
+                spotNormY: _loadedImage.Metadata.SpotNormalizedY);
         }
 
         CurrentScaleLabel = FormatVisibleScaleLabel(_loadedImage, displayScale.min, displayScale.max);
