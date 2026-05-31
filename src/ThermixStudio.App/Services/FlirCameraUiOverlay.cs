@@ -284,90 +284,133 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             DrawReticle(g, reticleX, reticleY, sx, sy, whitePen);
         }
 
-        // --- Textos com GDI+ (anti-aliased, fonte suave) ---
-        float baseFontSize = 14f * Math.Max(sx, sy);
-        using var fontRegular = new Font("Consolas", baseFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
-        using var fontSmall = new Font("Consolas", baseFontSize * 0.55f, FontStyle.Regular, GraphicsUnit.Pixel);
-        using var fontPrefix = new Font("Consolas", baseFontSize * 0.58f, FontStyle.Regular, GraphicsUnit.Pixel);
+        // Converter GDI+ de volta para buffer (reticula)
+        var rendered = BgraFromBitmap(bitmap);
+        Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
+        g.Dispose();
+        bitmap.Dispose();
+
+        // --- Caixas e textos ---
         using var brushText = new SolidBrush(Color.FromArgb(245, 247, 243));
-        using var brushBg = new SolidBrush(Color.Black);
-        var sfRight = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Center };
-        var sfLeft = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
 
-        float marginX = 4f * sx;
-        float marginY = 4f * sy;
-        float padX = 6f * sx;
-        float padY = 3f * sy;
-
-        // ---- Spot (topo-esquerda) ----
+        // ---- Spot temperature (topo-esquerda) ----
         string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
         string spotUnit = "°C";
-        var spotPrefix = !string.IsNullOrWhiteSpace(spotLabel) ? spotLabel : null;
 
-        var spotSize = g.MeasureString(spotText, fontRegular);
-        var unitSize = g.MeasureString(spotUnit, fontSmall);
-        float spotTotalW = spotSize.Width + unitSize.Width + padX;
-        float spotTotalH = Math.Max(spotSize.Height, unitSize.Height);
+        int maxSpotWidth = (int)((width / 2) - (8 * sx));
+        int maxSpotHeight = (int)(height * 0.15f);
+        int spotScale = CalculateOptimalScaleForArea(spotText + spotUnit, maxSpotWidth, maxSpotHeight, 10, 1, (int)(Math.Max(sx, sy) * 2.5));
+        float spotFontSize = 10f * spotScale;
+        float spotSmallSize = spotFontSize * 0.55f;
 
-        if (spotPrefix != null)
+        int spotMarginX = (int)(4 * spotScale);
+        int spotMarginY = (int)(2 * spotScale);
+
+        // Medir com GDI+ temporário
+        using var measureBmp = new Bitmap(1, 1);
+        using var measureG = Graphics.FromImage(measureBmp);
+        using var fontSpotVal = new Font("Consolas", spotFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var fontSpotSmall = new Font("Consolas", spotSmallSize, FontStyle.Regular, GraphicsUnit.Pixel);
+        var valSize = measureG.MeasureString(spotText, fontSpotVal);
+        var unitSize = measureG.MeasureString(spotUnit, fontSpotSmall);
+        int boxWidth = (int)(valSize.Width + unitSize.Width) + (spotMarginX * 2);
+        int boxHeight = Math.Max((int)valSize.Height, (int)unitSize.Height) + (spotMarginY * 2);
+        int boxX = (int)(4 * sx);
+        int boxY = (int)(4 * sy);
+        measureG.Dispose();
+        measureBmp.Dispose();
+
+        // Prefixo
+        int prefixW = 0;
+        if (!string.IsNullOrWhiteSpace(spotLabel))
         {
-            var prefixSize = g.MeasureString(spotPrefix, fontPrefix);
-            spotTotalW += prefixSize.Width + 2f * sx;
-            spotTotalH = Math.Max(spotTotalH, prefixSize.Height);
+            float prefixSize = spotFontSize * 0.58f;
+            using var fontPrefix = new Font("Consolas", prefixSize, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var mBmp = new Bitmap(1, 1);
+            using var mG = Graphics.FromImage(mBmp);
+            var pref = mG.MeasureString(spotLabel, fontPrefix);
+            prefixW = (int)pref.Width + (int)(2 * spotScale);
+            boxWidth += prefixW;
+            mG.Dispose();
+            mBmp.Dispose();
         }
 
-        float spotBoxW = spotTotalW + padX * 2;
-        float spotBoxH = spotTotalH + padY * 2;
-        float spotBoxX = marginX;
-        float spotBoxY = marginY;
+        // Caixa preta arredondada
+        DrawFilledRoundedRect(pixels, width, height, boxX, boxY, boxWidth, boxHeight, (int)(spotScale * 1.5f), Color.Black);
 
-        g.FillRectangle(brushBg, spotBoxX, spotBoxY, spotBoxW, spotBoxH);
+        // Texto GDI+ sobre a caixa
+        using var textBmp = BitmapFromBgra(width, height, pixels);
+        using var textG = Graphics.FromImage(textBmp);
+        textG.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        int textX = boxX + spotMarginX + prefixW;
+        int textY = boxY + spotMarginY;
 
-        float curX = spotBoxX + padX;
-        if (spotPrefix != null)
+        if (!string.IsNullOrWhiteSpace(spotLabel))
         {
-            var prefixSize = g.MeasureString(spotPrefix, fontPrefix);
-            g.DrawString(spotPrefix, fontPrefix, brushText, curX, spotBoxY + spotBoxH / 2 - prefixSize.Height / 2);
-            curX += prefixSize.Width + 2f * sx;
+            float prefixSize = spotFontSize * 0.58f;
+            using var fontPrefix = new Font("Consolas", prefixSize, FontStyle.Regular, GraphicsUnit.Pixel);
+            textG.DrawString(spotLabel, fontPrefix, brushText, boxX + spotMarginX, textY + (boxHeight - spotMarginY * 2) / 2 - prefixSize / 2 + 2);
         }
-        g.DrawString(spotText, fontRegular, brushText, curX, spotBoxY + spotBoxH / 2 - spotSize.Height / 2);
-        curX += spotSize.Width;
-        // "°C" sobrescrito
-        g.DrawString(spotUnit, fontSmall, brushText, curX, spotBoxY + padY);
+        textG.DrawString(spotText, fontSpotVal, brushText, textX, textY);
+        textG.DrawString(spotUnit, fontSpotSmall, brushText, textX + valSize.Width, textY + (valSize.Height - unitSize.Height) * 0.7f);
 
         if (!visibleMode)
         {
             // ---- Tmax (topo-direita) ----
             string topText = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: false);
-            var topSize = g.MeasureString(topText, fontSmall);
-            float topBoxW = topSize.Width + padX * 2;
-            float topBoxH = topSize.Height + padY * 2;
-            float topBoxX = width - topBoxW - marginX;
-            float topBoxY = marginY;
-
-            g.FillRectangle(brushBg, topBoxX, topBoxY, topBoxW, topBoxH);
-            g.DrawString(topText, fontSmall, brushText, topBoxX + topBoxW / 2, topBoxY + topBoxH / 2, sfRight);
-            sfRight.Alignment = StringAlignment.Center;
+            int maxTopW = (int)(width * 0.3f);
+            int maxTopH = (int)(height * 0.1f);
+            int topScale = CalculateOptimalScaleForArea(topText, maxTopW, maxTopH, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
+            float topFontSize = 10f * topScale;
+            using var fontTop = new Font("Consolas", topFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var mBmp2 = new Bitmap(1, 1);
+            using var mG2 = Graphics.FromImage(mBmp2);
+            var topSize = mG2.MeasureString(topText, fontTop);
+            mG2.Dispose(); mBmp2.Dispose();
+            int topMarginX = (int)(4 * topScale);
+            int topMarginY = (int)(2 * topScale);
+            int topBoxW = (int)topSize.Width + (topMarginX * 2);
+            int topBoxH = (int)topSize.Height + (topMarginY * 2);
+            int topBoxX = width - topBoxW - (int)(4 * sx);
+            int topBoxY = (int)(4 * sy);
+            DrawFilledRoundedRect(pixels, width, height, topBoxX, topBoxY, topBoxW, topBoxH, (int)(topScale * 1.5f), Color.Black);
+            using var topBmp = BitmapFromBgra(width, height, pixels);
+            using var topG = Graphics.FromImage(topBmp);
+            topG.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            topG.DrawString(topText, fontTop, brushText, topBoxX + topBoxW - topSize.Width - topMarginX, topBoxY + topMarginY);
+            var topRendered = BgraFromBitmap(topBmp);
+            Buffer.BlockCopy(topRendered, 0, pixels, 0, Math.Min(pixels.Length, topRendered.Length));
+            topG.Dispose(); topBmp.Dispose();
 
             // ---- Tmin (base-direita) ----
             string bottomText = FormatTemperature(scaleMinC ?? minTemperatureC, compact: false);
-            var bottomSize = g.MeasureString(bottomText, fontSmall);
-            float bottomBoxW = bottomSize.Width + padX * 2;
-            float bottomBoxH = bottomSize.Height + padY * 2;
-            float bottomBoxX = width - bottomBoxW - marginX;
-            float bottomBoxY = height - bottomBoxH - marginY;
-
-            g.FillRectangle(brushBg, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH);
-            g.DrawString(bottomText, fontSmall, brushText, bottomBoxX + bottomBoxW / 2, bottomBoxY + bottomBoxH / 2, sfRight);
+            int bottomScale = CalculateOptimalScaleForArea(bottomText, maxTopW, maxTopH, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
+            float bottomFontSize = 10f * bottomScale;
+            using var fontBottom = new Font("Consolas", bottomFontSize, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var mBmp3 = new Bitmap(1, 1);
+            using var mG3 = Graphics.FromImage(mBmp3);
+            var bottomSize = mG3.MeasureString(bottomText, fontBottom);
+            mG3.Dispose(); mBmp3.Dispose();
+            int bottomMarginX = (int)(4 * bottomScale);
+            int bottomMarginY = (int)(2 * bottomScale);
+            int bottomBoxW = (int)bottomSize.Width + (bottomMarginX * 2);
+            int bottomBoxH = (int)bottomSize.Height + (bottomMarginY * 2);
+            int bottomBoxX = width - bottomBoxW - (int)(4 * sx);
+            int bottomBoxY = height - bottomBoxH - (int)(4 * sy);
+            DrawFilledRoundedRect(pixels, width, height, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH, (int)(bottomScale * 1.5f), Color.Black);
+            using var bottomBmp = BitmapFromBgra(width, height, pixels);
+            using var bottomG = Graphics.FromImage(bottomBmp);
+            bottomG.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            bottomG.DrawString(bottomText, fontBottom, brushText, bottomBoxX + bottomBoxW - bottomSize.Width - bottomMarginX, bottomBoxY + bottomMarginY);
+            var bottomRendered = BgraFromBitmap(bottomBmp);
+            Buffer.BlockCopy(bottomRendered, 0, pixels, 0, Math.Min(pixels.Length, bottomRendered.Length));
+            bottomG.Dispose(); bottomBmp.Dispose();
         }
 
-        sfRight.Dispose();
-        sfLeft.Dispose();
-
-        // Converter GDI+ de volta para buffer (reticula + textos)
-        var rendered = BgraFromBitmap(bitmap);
-        Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
-        g.Dispose();
+        // Aplicar textos do spot
+        var spotRendered = BgraFromBitmap(textBmp);
+        Buffer.BlockCopy(spotRendered, 0, pixels, 0, Math.Min(pixels.Length, spotRendered.Length));
+        textG.Dispose(); textBmp.Dispose();
         bitmap.Dispose();
     }
 
