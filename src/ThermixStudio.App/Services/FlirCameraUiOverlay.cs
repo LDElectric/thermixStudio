@@ -602,6 +602,11 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         return vertical || horizontal || ticks;
     }
 
+    public static bool TryDetectReticleCenter(byte[]? originalPixels, int width, int height, out double centerX, out double centerY)
+    {
+        return TryDetectFlirReticleCenter(originalPixels, width, height, out centerX, out centerY);
+    }
+
     private static bool TryDetectFlirReticleCenter(byte[]? originalPixels, int width, int height, out double centerX, out double centerY)
     {
         centerX = width / 2.0;

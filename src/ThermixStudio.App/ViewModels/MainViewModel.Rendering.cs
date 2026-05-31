@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ThermixStudio.App.Services;
 using ThermixStudio.Core;
 using CommunityToolkit.Mvvm.Input;
 
@@ -752,88 +753,8 @@ public sealed partial class MainViewModel
 
     private static bool TryDetectFlirReticleCenter(byte[]? originalPixels, int width, int height, out double centerX, out double centerY)
     {
-        centerX = width / 2.0;
-        centerY = height / 2.0;
-        if (originalPixels is null || originalPixels.Length != width * height * 4 || width <= 0 || height <= 0)
-        {
-            return false;
-        }
-
-        var sx = width / 320.0;
-        var sy = height / 240.0;
-        var s = Math.Max(0.75, Math.Min(sx, sy));
-        var inner = Math.Max(2, (int)Math.Round(4 * s));
-        var outer = Math.Max(inner + 8, (int)Math.Round(20 * s));
-        var halfThickness = Math.Max(1, (int)Math.Ceiling(1.5 * s));
-
-        var minX = Math.Clamp((int)Math.Round(20 * sx), 0, width - 1);
-        var maxX = Math.Clamp(width - 1 - (int)Math.Round(58 * sx), 0, width - 1);
-        var minY = Math.Clamp((int)Math.Round(35 * sy), 0, height - 1);
-        var maxY = Math.Clamp(height - 1 - (int)Math.Round(30 * sy), 0, height - 1);
-        if (maxX <= minX || maxY <= minY)
-        {
-            return false;
-        }
-
-        var bestScore = 0;
-        var bestSamples = 1;
-        for (var y = minY + outer; y <= maxY - outer; y++)
-        {
-            for (var x = minX + outer; x <= maxX - outer; x++)
-            {
-                var score = 0;
-                var samples = 0;
-
-                for (var d = -outer; d <= outer; d++)
-                {
-                    if (Math.Abs(d) < inner)
-                    {
-                        continue;
-                    }
-
-                    for (var t = -halfThickness; t <= halfThickness; t++)
-                    {
-                        samples += 2;
-                        if (IsReticleOverlayPixel(originalPixels, width, height, x + d, y + t))
-                        {
-                            score++;
-                        }
-                        if (IsReticleOverlayPixel(originalPixels, width, height, x + t, y + d))
-                        {
-                            score++;
-                        }
-                    }
-                }
-
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestSamples = Math.Max(1, samples);
-                    centerX = x;
-                    centerY = y;
-                }
-            }
-        }
-
-        return bestScore >= Math.Max(18, bestSamples * 0.33);
-    }
-
-    private static bool IsReticleOverlayPixel(byte[] pixels, int width, int height, int x, int y)
-    {
-        if ((uint)x >= (uint)width || (uint)y >= (uint)height)
-        {
-            return false;
-        }
-
-        var idx = ((y * width) + x) * 4;
-        var b = pixels[idx];
-        var g = pixels[idx + 1];
-        var r = pixels[idx + 2];
-        var max = Math.Max(r, Math.Max(g, b));
-        var min = Math.Min(r, Math.Min(g, b));
-        var brightness = (r + g + b) / 3;
-        var saturation = max - min;
-        return saturation <= 55 && brightness >= 155;
+        // Delega para implementação canônica (FlirCameraUiOverlay)
+        return FlirCameraUiOverlay.TryDetectReticleCenter(originalPixels, width, height, out centerX, out centerY);
     }
 
     private static bool DetectSpotApproximationMarker(byte[] originalPixels, int width, int height)
