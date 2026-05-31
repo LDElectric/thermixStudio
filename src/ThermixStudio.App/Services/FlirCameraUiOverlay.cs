@@ -669,9 +669,9 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             }
         }
 
-        // Só aceita se encontrou pixels suficientes (≥33% de cobertura) e o centro não está muito longe do default
+        // Só aceita se encontrou pixels suficientes (≥12% de cobertura, mínimo 15 pixels)
         double ratio = (double)bestScore / bestSamples;
-        if (ratio < 0.33) return false;
+        if (ratio < 0.12 && bestScore < 15) return false;
 
         // Se o centro detectado está muito longe do centro geométrico (>15px), rejeitar
         double distFromDefault = Math.Sqrt((centerX - width / 2.0) * (centerX - width / 2.0) + (centerY - height / 2.0) * (centerY - height / 2.0));
@@ -730,10 +730,10 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
         int logoW = x2 - x1 + 1;
         int logoH = y2 - y1 + 1;
 
-        // Thresholds relaxados para JPEG compression e anti-aliasing
-        const int maxSaturation = 55;
-        const int minBrightness = 140;
-        const int minComponentSize = 6;
+        // Thresholds específicos para logo (mais restritivos que UI genérica)
+        const int maxSaturation = 35;
+        const int minBrightness = 185;
+        const int minComponentSize = 4;
 
         // Passo 1: criar máscara binária dos pixels candidatos
         var mask = new bool[logoW, logoH];
