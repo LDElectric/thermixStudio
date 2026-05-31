@@ -42,22 +42,29 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             {
                 double sx0 = width / 320.0;
                 double sy0 = height / 240.0;
-                int barX1 = (int)(305 * sx0);
-                int barY1 = (int)(30 * sy0);
-                int barX2 = (int)(312 * sx0);
-                int barY2 = (int)(207 * sy0);
 
-                // Copiar fundo original da barra (inclui borda natural da câmera)
+                // Copiar a barra de escala ORIGINAL inteira (fundo, cores, labels, borda)
+                // Só redesenharemos as cores se a paleta for diferente da original
+                bool isOriginalPalette = scaleLut.Name.Contains("embedded", StringComparison.OrdinalIgnoreCase);
+
                 if (originalPixels is not null && originalPixels.Length == width * height * 4)
                 {
-                    int bgX1 = (int)(303 * sx0);
-                    int bgY1 = (int)(28 * sy0);
-                    int bgX2 = (int)(315 * sx0);
-                    int bgY2 = (int)(209 * sy0);
-                    CopyOriginalRectangle(result, originalPixels, width, height, bgX1, bgY1, bgX2, bgY2);
+                    int fullX1 = (int)(300 * sx0);
+                    int fullY1 = (int)(26 * sy0);
+                    int fullX2 = (int)(318 * sx0);
+                    int fullY2 = (int)(210 * sy0);
+                    CopyOriginalRectangle(result, originalPixels, width, height, fullX1, fullY1, fullX2, fullY2);
                 }
 
-                DrawPaletteScaleBar(result, width, height, scaleLut, barX1, barY1, barX2, barY2);
+                if (!isOriginalPalette)
+                {
+                    // Só redesenhar cores se a paleta mudou
+                    int barX1 = (int)(305 * sx0);
+                    int barY1 = (int)(30 * sy0);
+                    int barX2 = (int)(312 * sx0);
+                    int barY2 = (int)(207 * sy0);
+                    DrawPaletteScaleBar(result, width, height, scaleLut, barX1, barY1, barX2, barY2);
+                }
             }
             else if (mode != ImageViewMode.Visible && originalPixels is not null && originalPixels.Length == width * height * 4)
             {
