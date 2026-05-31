@@ -43,24 +43,30 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                 double sx0 = width / 320.0;
                 double sy0 = height / 240.0;
 
-                // Dimensões exatas da barra de escala original FLIR E8xt
-                int barX1 = (int)(304 * sx0);
-                int barY1 = (int)(29 * sy0);
-                int barX2 = (int)(313 * sx0);
-                int barY2 = (int)(208 * sy0);
+                // Estrutura exata da barra FLIR E8xt (medida do original 2.jpg):
+                // x:305-312 = 8px de cores | x:304,313 = borda preta 1px | x:303,314 = borda escura 1px
+                int fillX1 = (int)(305 * sx0);
+                int fillX2 = (int)(312 * sx0);
+                int innerX1 = fillX1 - 1; // 304
+                int innerX2 = fillX2 + 1; // 313
+                int outerX1 = innerX1 - 1; // 303
+                int outerX2 = innerX2 + 1; // 314
+                int barY1 = (int)(30 * sy0);
+                int barY2 = (int)(207 * sy0);
 
-                // Fundo preto da barra (inclui borda de 1px natural)
-                int bgX1 = barX1 - 1;
-                int bgY1 = barY1 - 1;
-                int bgX2 = barX2 + 1;
-                int bgY2 = barY2 + 1;
-                DrawFilledRect(result, width, height, bgX1, bgY1, bgX2 - bgX1 + 1, bgY2 - bgY1 + 1, Color.Black);
+                // 1) Bordas verticais (2px cada lado) — só as bordas, sem preencher fundo
+                Color innerBorder = Color.Black;
+                Color outerBorder = Color.FromArgb(18, 18, 20);
+                DrawVertLine(result, width, height, innerX1, barY1, barY2, innerBorder);
+                DrawVertLine(result, width, height, innerX2, barY1, barY2, innerBorder);
+                DrawVertLine(result, width, height, outerX1, barY1, barY2, outerBorder);
+                DrawVertLine(result, width, height, outerX2, barY1, barY2, outerBorder);
+                // Bordas horizontais (topo e base)
+                DrawHorizLine(result, width, height, outerX1, outerX2, barY1 - 1, innerBorder);
+                DrawHorizLine(result, width, height, outerX1, outerX2, barY2 + 1, innerBorder);
 
-                // Preenchimento de cores vivas (LUT pura, sem DDE)
-                DrawPaletteScaleBar(result, width, height, scaleLut, barX1, barY1, barX2, barY2);
-
-                // Borda branca/bright de 1px (como no original FLIR)
-                DrawRectBorder(result, width, height, bgX1, bgY1, bgX2, bgY2, 1, Color.FromArgb(40, 40, 45));
+                // 2) Preenchimento de cores vivas (8px largura)
+                DrawPaletteScaleBar(result, width, height, scaleLut, fillX1, barY1, fillX2, barY2);
             }
             else if (mode != ImageViewMode.Visible && originalPixels is not null && originalPixels.Length == width * height * 4)
             {
@@ -423,6 +429,35 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                 pixels[idx + 2] = r;
                 pixels[idx + 3] = 255;
             }
+        }
+    }
+
+    private static void DrawVertLine(byte[] pixels, int width, int height, int x, int y1, int y2, Color color)
+    {
+        if (x < 0 || x >= width) return;
+        int stride = width * 4;
+        byte r = color.R, g = color.G, b = color.B;
+        int startY = Math.Max(0, y1);
+        int endY = Math.Min(height - 1, y2);
+        for (int y = startY; y <= endY; y++)
+        {
+            int idx = (y * stride) + (x * 4);
+            pixels[idx] = b; pixels[idx + 1] = g; pixels[idx + 2] = r; pixels[idx + 3] = 255;
+        }
+    }
+
+    private static void DrawHorizLine(byte[] pixels, int width, int height, int x1, int x2, int y, Color color)
+    {
+        if (y < 0 || y >= height) return;
+        int stride = width * 4;
+        byte r = color.R, g = color.G, b = color.B;
+        int startX = Math.Max(0, x1);
+        int endX = Math.Min(width - 1, x2);
+        int rowBase = y * stride;
+        for (int x = startX; x <= endX; x++)
+        {
+            int idx = rowBase + (x * 4);
+            pixels[idx] = b; pixels[idx + 1] = g; pixels[idx + 2] = r; pixels[idx + 3] = 255;
         }
     }
 
