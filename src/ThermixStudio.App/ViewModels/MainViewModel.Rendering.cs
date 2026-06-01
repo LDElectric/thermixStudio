@@ -15,6 +15,28 @@ namespace ThermixStudio.App.ViewModels;
 
 public sealed partial class MainViewModel
 {
+    // ── Cache de pixels BGRA (evita re-leitura de disco a cada re-render) ──
+    private string? _cachedOriginalPath;
+    private byte[]? _cachedOriginalBgra;
+    private string? _cachedVisiblePath;
+    private byte[]? _cachedVisibleBgra;
+    private (int w, int h) _cachedVisibleAlignedSize;
+
+    // ── Cache do min/max da matriz de temperaturas ──
+    private double _cachedMatrixMinC = double.MaxValue;
+    private double _cachedMatrixMaxC = double.MinValue;
+
+    private void ClearPerThermogramCaches()
+    {
+        _cachedOriginalPath = null;
+        _cachedOriginalBgra = null;
+        _cachedVisiblePath = null;
+        _cachedVisibleBgra = null;
+        _cachedVisibleAlignedSize = default;
+        _cachedMatrixMinC = double.MaxValue;
+        _cachedMatrixMaxC = double.MinValue;
+    }
+
     private void UpdateDisplayImage()
     {
         if (_loadedImage is null) return;
@@ -155,14 +177,22 @@ public sealed partial class MainViewModel
             bool spotApprox = spotIsApproximate ?? false;
             if (string.IsNullOrWhiteSpace(spotLabel) && spotTemperature.HasValue)
             {
-                double matMin = double.MaxValue, matMax = double.MinValue;
-                for (int y = 0; y < _loadedImage.Height; y++)
-                    for (int x = 0; x < _loadedImage.Width; x++)
+                    // Computed once per thermogram and cached
+                    if (_cachedMatrixMinC == double.MaxValue)
                     {
-                        var t = _loadedImage.Temperatures[y, x];
-                        if (t < matMin) matMin = t;
-                        if (t > matMax) matMax = t;
+                        double cMin = double.MaxValue, cMax = double.MinValue;
+                        for (int y = 0; y < _loadedImage.Height; y++)
+                            for (int x = 0; x < _loadedImage.Width; x++)
+                            {
+                                var t = _loadedImage.Temperatures[y, x];
+                                if (t < cMin) cMin = t;
+                                if (t > cMax) cMax = t;
+                            }
+                        _cachedMatrixMinC = cMin;
+                        _cachedMatrixMaxC = cMax;
                     }
+                    double matMin = _cachedMatrixMinC;
+                    double matMax = _cachedMatrixMaxC;
 
                 // Comparar quanto cada extremo da escala se estende além da cena real.
                 // O lado que se estende MAIS define o prefixo (evita empate de threshold fixo).
@@ -253,12 +283,35 @@ public sealed partial class MainViewModel
     }
 
     private bool TryLoadOriginalCameraBgraPixels(int width, int height, out byte[]? pixels)
-        => TryLoadImageBgraPixels(CurrentImagePath, width, height, out pixels);
+    {
+        if (_cachedOriginalPath == CurrentImagePath &&
+            _cachedOriginalBgra is not null &&
+            _cachedOriginalBgra.Length == width * height * 4)
+        {
+            pixels = _cachedOriginalBgra;
+            return true;
+        }
+        var ok = TryLoadImageBgraPixels(CurrentImagePath, width, height, out pixels);
+        if (ok && pixels is not null)
+        {
+            _cachedOriginalPath = CurrentImagePath;
+            _cachedOriginalBgra = pixels;
+        }
+        return ok;
+    }
 
     private bool TryLoadVisibleBgraPixels(int width, int height, out byte[]? pixels)
     {
-        if (TryLoadImageBgraPixelsAtNative(PairedVisibleImagePath, out var rawVisiblePixels, out var sourceWidth, out var sourceHeight)
-            && rawVisiblePixels is not null)
+            if (_cachedVisiblePath == PairedVisibleImagePath &&
+                _cachedVisibleBgra is not null &&
+                _cachedVisibleAlignedSize == (width, height))
+            {
+                pixels = _cachedVisibleBgra;
+                return true;
+            }
+
+            if (TryLoadImageBgraPixelsAtNative(PairedVisibleImagePath, out var rawVisiblePixels, out var sourceWidth, out var sourceHeight)
+                && rawVisiblePixels is not null)
         {
             pixels = AlignVisibleToThermalFOV(
                 rawVisiblePixels,
@@ -267,6 +320,9 @@ public sealed partial class MainViewModel
                 width,
                 height,
                 _loadedImage?.Metadata);
+                _cachedVisiblePath = PairedVisibleImagePath;
+                _cachedVisibleBgra = pixels;
+                _cachedVisibleAlignedSize = (width, height);
             return true;
         }
 

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Threading;
 using Microsoft.Win32;
 using ThermixStudio.Core;
 
@@ -40,6 +41,8 @@ public sealed partial class MainViewModel
             PairedVisibleImagePath = null;
             Measurements.Clear();
             Illustrations.Clear();
+                ClearPerThermogramCaches();
+                _renderDebounceCts?.Cancel();
             
             // Sincronizar UI para campos editáveis
             ThermogramEquipmentTag = string.Empty;
@@ -52,6 +55,12 @@ public sealed partial class MainViewModel
             return;
         }
 
+            // Cancelar carga anterior para evitar empilhamento de operações pesadas
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            _loadCts = new CancellationTokenSource();
+            var loadToken = _loadCts.Token;
+
         CurrentImagePath = value.FilePath;
         
         // Sincronizar UI a partir do modelo
@@ -61,12 +70,13 @@ public sealed partial class MainViewModel
         ThermogramNotes = value.Notes ?? string.Empty;
         ThermogramCriticality = value.Criticality;
 
-        _ = LoadSelectedThermogramAsync(value);
+            _ = LoadSelectedThermogramAsync(value, loadToken);
     }
 
-    private async Task LoadSelectedThermogramAsync(Thermogram thermogram)
+        private async Task LoadSelectedThermogramAsync(Thermogram thermogram, CancellationToken cancellationToken = default)
     {
         _loadingThermogram = true;
+            ClearPerThermogramCaches();
         Measurements.Clear();
         Illustrations.Clear();
 
@@ -92,16 +102,17 @@ public sealed partial class MainViewModel
         await _viewPipeline.PrepareThermogramAsync(thermogram.FilePath);
 
         var processing = ExtractProcessingState(thermogram.ProcessingJson);
-        var shouldPersistProcessingMetadataUpdate = false;
+       var shouldPersistProcessingMetadataUpdate = false; // note: CancellationToken already checked below
         _inferredCaptureMode = null;
         _metadataDetectedMode = _loadedImage?.Metadata.DetectedViewMode;
         
         if (!_metadataDetectedMode.HasValue)
         {
-            _metadataDetectedMode = await DetectOriginalCaptureModeAsync(thermogram.FilePath);
+          _metadataDetectedMode = await DetectOriginalCaptureModeAsync(thermogram.FilePath, cancellationToken);
         }
+            if (cancellationToken.IsCancellationRequested) { _loadingThermogram = false; return; }
 
-        if (processing.MetadataDetectedMode != _metadataDetectedMode)
+            if (processing.MetadataDetectedMode != _metadataDetectedMode)
         {
             shouldPersistProcessingMetadataUpdate = true;
         }
@@ -188,7 +199,7 @@ public sealed partial class MainViewModel
                         return (success, mode, palette);
                     });
 
-                    var completed = await Task.WhenAny(inferTask, Task.Delay(1800));
+                        var completed = await Task.WhenAny(inferTask, Task.Delay(1800, cancellationToken));
                     if (completed == inferTask)
                     {
                         var inference = await inferTask;
@@ -212,6 +223,8 @@ public sealed partial class MainViewModel
                 }
             }
         }
+
+        if (cancellationToken.IsCancellationRequested) { _loadingThermogram = false; return; }
 
         UpdateDisplayImage();
         OnPropertyChanged(nameof(ImagePixelWidth));
@@ -351,10 +364,10 @@ public sealed partial class MainViewModel
         StatusMessage = $"Importacao ({sourceLabel}) concluida: {imported} arquivo(s), {skipped} ignorado(s), {errors} erro(s).";
     }
 
-    private async Task<global::ThermixStudio.Core.ImageViewMode?> DetectOriginalCaptureModeAsync(string? filePath)
+    private async Task<global::ThermixStudio.Core.ImageViewMode?> DetectOriginalCaptureModeAsync(string? filePath, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return null;
-        try { return await _viewPipeline.DetectCaptureModeFromMetadataAsync(filePath); }
+        try { return await _viewPipeline.DetectCaptureModeFromMetadataAsync(filePath, cancellationToken); }
         catch { return null; }
     }
 

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -67,8 +68,13 @@ public sealed partial class MainViewModel : ObservableObject
     private bool _loadingThermogram;
     private global::ThermixStudio.Core.ImageViewMode? _metadataDetectedMode;
     private global::ThermixStudio.Core.ImageViewMode? _inferredCaptureMode;
-    
-    private static readonly string _debugLogPath = Path.Combine(
+
+        // ── Cancellation: cancela carga anterior quando usuário troca de termograma ──
+        private CancellationTokenSource? _loadCts;
+        // ── Debounce: evita re-render a cada tick de slider ──
+        private CancellationTokenSource? _renderDebounceCts;
+
+        private static readonly string _debugLogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
         "ThermixStudio_DEBUG.log");
 
@@ -308,9 +314,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnImageViewModeChanged(ImageViewMode value)
     {
-        Debug.WriteLine($"[MODE] OnImageViewModeChanged => {value}");
-        LogToFile($"[MODE] OnImageViewModeChanged => {value}");
-        StatusMessage = $"Modo: {GetViewModeDisplay(value)}";
+           StatusMessage = $"Modo: {GetViewModeDisplay(value)}";
         OnPropertyChanged(nameof(ViewModeLabel));
         OnPropertyChanged(nameof(ShowBlendControls));
         OnPropertyChanged(nameof(ShowPipControls));
@@ -340,8 +344,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             LevelMaxC = value + 0.1;
         }
-        UpdateDisplayImage();
-        _ = PersistSelectedThermogramViewStateAsync();
+            TriggerRenderDebounced();
     }
 
     partial void OnLevelMaxCChanged(double value)
@@ -351,8 +354,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             LevelMinC = value - 0.1;
         }
-        UpdateDisplayImage();
-        _ = PersistSelectedThermogramViewStateAsync();
+            TriggerRenderDebounced();
     }
 
     partial void OnSelectedPaletteChanged(ThermalPalette value)
@@ -364,29 +366,25 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
         if (_loadingThermogram) return;
-        UpdateDisplayImage();
-        _ = PersistSelectedThermogramViewStateAsync();
+            TriggerRenderDebounced(delayMs: 0);
     }
 
     partial void OnBlendFactorChanged(double value)
     {
         if (_loadingThermogram) return;
-        UpdateDisplayImage();
-        _ = PersistSelectedThermogramViewStateAsync();
+            TriggerRenderDebounced();
     }
 
     partial void OnPipScaleChanged(double value)
     {
         if (_loadingThermogram) return;
-        UpdateDisplayImage();
-        _ = PersistSelectedThermogramViewStateAsync();
+            TriggerRenderDebounced();
     }
 
     partial void OnMsxStrengthChanged(double value)
     {
         if (_loadingThermogram) return;
-        UpdateDisplayImage();
-        _ = PersistSelectedThermogramViewStateAsync();
+            TriggerRenderDebounced();
     }
 
     partial void OnActiveToolChanged(AnalysisTool value)
@@ -402,6 +400,36 @@ public sealed partial class MainViewModel : ObservableObject
             _ => "Pronto."
         };
     }
+
+        /// <summary>
+        /// Agenda um re-render com debounce para evitar re-renderizações excessivas
+        /// durante arrasto de sliders. <paramref name="delayMs"/>=0 renderiza imediatamente
+        /// no próximo ciclo do dispatcher.
+        /// </summary>
+        private void TriggerRenderDebounced(int delayMs = 70)
+        {
+            _renderDebounceCts?.Cancel();
+            _renderDebounceCts = new CancellationTokenSource();
+            var token = _renderDebounceCts.Token;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    if (delayMs > 0)
+                        await Task.Delay(delayMs, token).ConfigureAwait(false);
+                    await System.Windows.Application.Current.Dispatcher
+                        .InvokeAsync(() =>
+                        {
+                            if (!token.IsCancellationRequested)
+                            {
+                                UpdateDisplayImage();
+                                _ = PersistSelectedThermogramViewStateAsync();
+                            }
+                        });
+                }
+                catch (OperationCanceledException) { /* debounce cancelado, ignorar */ }
+            });
+        }
 
     private static void LogToFile(string message)
     {
