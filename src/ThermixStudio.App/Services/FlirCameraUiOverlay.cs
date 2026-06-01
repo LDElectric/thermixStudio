@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using ThermixStudio.Core;
@@ -265,107 +265,149 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
     {
         float sx = width / 320f;
         float sy = height / 240f;
+        float scl = Math.Max(sx, sy);
         bool visibleMode = mode == ImageViewMode.Visible;
 
-        // --- Desenhar retÃ­cula (crosshair) com GDI+ ---
-        using var bitmap = BitmapFromBgra(width, height, pixels);
-        using var g = Graphics.FromImage(bitmap);
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+        // ---- Toda a UI em um único passo GDI+ (retícula + caixas + texto) ----
+        const string FontFamily = "Segoe UI";
 
+        string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
+        const string spotUnit = "°C";
+
+        // Métricas do Segoe UI Bold (constantes tipográficas):
+        //   capRatio  = capHeight / emSize    = 1456/2048 ≈ 0.711
+        //   capGapRat = (ascender-capHeight)/emSize = 398/2048 ≈ 0.194
+        //   → DrawString Y coloca o topo da célula; as caps começam Y + emSize*capGapRat abaixo.
+        //
+        // Cap heights medidas no FLIR0060.jpg (320×240):
+        //   dígitos "105"  → cap 15px → em = 15/0.711 ≈ 21px
+        //   sufixo/prefixo → cap 10px → em = 10/0.711 ≈ 14px
+        //   barra de escala→ cap 12px → em = 12/0.711 ≈ 17px
+        const float CapRatio  = 0.711f;    // Segoe UI: capHeight/emSize
+        const float CapGapRat = 0.1943f;   // Segoe UI: espaço acima das caps dentro da célula
+
+        float capH_main = 15f * scl;       // cap height alvo para dígitos principais
+        float capH_sub  = 10f * scl;       // cap height alvo para sufixo/prefixo
+
+        float mainPx = Math.Max(8f,  (float)Math.Round(capH_main / CapRatio));   // ~21px
+        float subPx  = Math.Max(5f,  (float)Math.Round(capH_sub  / CapRatio));   // ~14px
+
+        float capGap_main = mainPx * CapGapRat;   // ~4px: offset cell→cap para fonte principal
+        float capGap_sub  = subPx  * CapGapRat;   // ~3px: offset cell→cap para subfonte
+
+        int   marginX = (int)Math.Max(3f, Math.Round(4f * sx));
+        int   marginY = (int)Math.Max(2f, Math.Round(4f * sy));
+
+        using var bitmap = BitmapFromBgra(width, height, pixels);
+        using var g      = Graphics.FromImage(bitmap);
+        g.SmoothingMode     = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+
+        // ---- Retícula ----
         if (drawReticle)
         {
             using var shadowPen = new Pen(Color.Black, Math.Max(2.4f, 2.8f * Math.Max(sx, sy)));
-            using var whitePen = new Pen(Color.White, Math.Max(1.4f, 1.65f * Math.Max(sx, sy)));
+            using var whitePen  = new Pen(Color.White,  Math.Max(1.4f, 1.65f * Math.Max(sx, sy)));
             var reticleX = (float)(reticleCenterX ?? (160 * sx));
             var reticleY = (float)(reticleCenterY ?? (120 * sy));
             DrawReticle(g, reticleX, reticleY, sx, sy, shadowPen);
             DrawReticle(g, reticleX, reticleY, sx, sy, whitePen);
         }
 
-        // Converter GDI+ de volta para buffer (reticula)
-        var rendered = BgraFromBitmap(bitmap);
-        Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
-        g.Dispose();
-        bitmap.Dispose();
+        using var mainFont  = new Font(FontFamily, mainPx, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var subFont   = new Font(FontFamily, subPx,  FontStyle.Bold, GraphicsUnit.Pixel);
+        using var textBrush = new SolidBrush(Color.FromArgb(245, 247, 243));
+        using var strFmt    = StringFormat.GenericTypographic;
 
-        // --- Caixas (buffer direto) + textos (FlirBitmapFont nativo da FLIR) ---
-        // O hardware FLIR renderiza em bitmap — a fonte pixelada É a original.
+        // ---- Caixa do Spot (topo-esquerda): [prefix(sub,baseline)] [digits(main)] [°C(sub,top)] ----
+        var spotDigitsSz = g.MeasureString(spotText, mainFont, PointF.Empty, strFmt);
+        var spotUnitSz   = g.MeasureString(spotUnit,  subFont,  PointF.Empty, strFmt);
 
-        // ---- Spot (topo-esquerda) ----
-        string spotText = FormatTemperatureValue(spotTemperatureC, approximate: spotIsApproximate);
-        string spotUnit = " °C";
-        string fullSpotText = spotText + spotUnit;
+        int prefixPixW = 0, prefixGap = 0;
+        SizeF prefixSz = SizeF.Empty;
+        if (!string.IsNullOrWhiteSpace(spotLabel))
+        {
+            prefixSz  = g.MeasureString(spotLabel, subFont, PointF.Empty, strFmt);
+            prefixPixW = (int)Math.Ceiling(prefixSz.Width);
+            prefixGap  = (int)Math.Max(1f, Math.Round(3f * sx));
+        }
 
-        int maxSpotWidth = (int)((width / 2) - (8 * sx));
-        int maxSpotHeight = (int)(height * 0.15f);
-        int spotScale = CalculateOptimalScaleForArea(fullSpotText, maxSpotWidth, maxSpotHeight, 10, 1, (int)(Math.Max(sx, sy) * 2.5));
-        int spotTextWidth = FlirBitmapFont.MeasureText(fullSpotText, spotScale);
-        int spotTextHeight = 10 * spotScale;
-        int spotMarginX = (int)(4 * spotScale);
-        int spotMarginY = (int)(2 * spotScale);
-        int boxWidth = spotTextWidth + (spotMarginX * 2);
-        int boxHeight = spotTextHeight + (spotMarginY * 2);
-        int boxX = (int)(4 * sx);
-        int boxY = (int)(4 * sy);
+        int unitGap = (int)Math.Max(1f, Math.Round(4f * sx));
+        // Largura: soma das partes + gaps + margens
+        int spotBoxW = marginX + prefixPixW + prefixGap
+                       + (int)Math.Ceiling(spotDigitsSz.Width)
+                       + unitGap + (int)Math.Ceiling(spotUnitSz.Width) + marginX;
+        // Altura: marginY + cap height alvo + marginY (não usa GetHeight que inclui leading excessivo)
+        int spotBoxH = (int)Math.Round(capH_main) + marginY * 2;
+        int boxX     = (int)(4 * sx);
+        int boxY     = (int)(4 * sy);
 
-        int textX = boxX + spotMarginX;
-        int textY = boxY + spotMarginY;
+        int cornerR = (int)Math.Max(2f, Math.Round(3f * scl));
+        FillRoundedRectGdi(g, boxX, boxY, spotBoxW, spotBoxH, cornerR);
+
+        float curX = boxX + marginX;
+        // mainY: DrawString Y tal que as caps fiquem em boxY+marginY
+        // (DrawString coloca célula em Y; caps começam Y+capGap_main abaixo da célula)
+        float mainY = boxY + marginY - capGap_main;
 
         if (!string.IsNullOrWhiteSpace(spotLabel))
         {
-            int prefixScale = Math.Max(1, spotScale * 3 / 5);
-            int prefixWidth = FlirBitmapFont.MeasureText(spotLabel, prefixScale);
-            int prefixY = textY + (spotTextHeight - 10 * prefixScale);
-            FlirBitmapFont.DrawText(pixels, width, height, spotLabel,
-                textX, prefixY, prefixScale,
-                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
-            textX += prefixWidth + (int)(2 * spotScale);
-            boxWidth += prefixWidth + (int)(2 * spotScale);
+            // Baseline-aligned: cap bottom do prefixo = cap bottom dos dígitos
+            // capBottom_main = mainY + capGap_main + capH_main
+            // prefixDrawY = capBottom_main - capGap_sub - capH_sub
+            float prefixY = mainY + capGap_main + capH_main - capGap_sub - capH_sub;
+            g.DrawString(spotLabel, subFont, textBrush, curX, prefixY, strFmt);
+            curX += prefixPixW + prefixGap;
         }
 
-        DrawFilledRoundedRect(pixels, width, height, boxX, boxY, boxWidth, boxHeight, (int)(spotScale * 1.5f), Color.Black);
-        FlirBitmapFont.DrawText(pixels, width, height, fullSpotText,
-            textX, textY, spotScale,
-            FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+        g.DrawString(spotText, mainFont, textBrush, curX, mainY, strFmt);
+        curX += (int)Math.Ceiling(spotDigitsSz.Width) + unitGap;
 
+        // °C: top-aligned (superscript) — cap top do sufixo = cap top dos dígitos
+        // capTop_main = mainY + capGap_main
+        // suffixDrawY = capTop_main - capGap_sub
+        float suffixY = mainY + (capGap_main - capGap_sub);
+        g.DrawString(spotUnit, subFont, textBrush, curX, suffixY, strFmt);
+
+        // ---- Tmax / Tmin (modo térmico) ----
         if (!visibleMode)
         {
-            // ---- Tmax (topo-direita) ----
-            string topText = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: true);
-            int maxTopW = (int)(width * 0.3f);
-            int maxTopH = (int)(height * 0.1f);
-            int topScale = CalculateOptimalScaleForArea(topText, maxTopW, maxTopH, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
-            int topTextWidth = FlirBitmapFont.MeasureText(topText, topScale);
-            int topTextHeight = 10 * topScale;
-            int topMarginX = (int)(4 * topScale);
-            int topMarginY = (int)(2 * topScale);
-            int topBoxW = topTextWidth + (topMarginX * 2);
-            int topBoxH = topTextHeight + (topMarginY * 2);
-            int topBoxX = width - topBoxW - (int)(4 * sx);
-            int topBoxY = (int)(4 * sy);
-            DrawFilledRoundedRect(pixels, width, height, topBoxX, topBoxY, topBoxW, topBoxH, (int)(topScale * 1.5f), Color.Black);
-            FlirBitmapFont.DrawText(pixels, width, height, topText,
-                topBoxX + topBoxW - topTextWidth - topMarginX, topBoxY + topMarginY, topScale,
-                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+            // Barra de escala: cap height alvo 12px → em = 12/0.711 ≈ 17px
+            float capH_top = 12f * scl;
+            float topPx    = Math.Max(5f, (float)Math.Round(capH_top / CapRatio));  // ~17px
+            float capGap_top = topPx * CapGapRat;
+            int topMX   = (int)Math.Max(2f, Math.Round(4f * sx));
+            int topMY   = (int)Math.Max(2f, Math.Round(3f * sy));
+            int topCornerR = (int)Math.Max(2f, Math.Round(3f * scl));
 
-            // ---- Tmin (base-direita) ----
-            string bottomText = FormatTemperature(scaleMinC ?? minTemperatureC, compact: true);
-            int bottomScale = CalculateOptimalScaleForArea(bottomText, maxTopW, maxTopH, 10, 1, (int)(Math.Max(sx, sy) * 1.8));
-            int bottomTextWidth = FlirBitmapFont.MeasureText(bottomText, bottomScale);
-            int bottomTextHeight = 10 * bottomScale;
-            int bottomMarginX = (int)(4 * bottomScale);
-            int bottomMarginY = (int)(2 * bottomScale);
-            int bottomBoxW = bottomTextWidth + (bottomMarginX * 2);
-            int bottomBoxH = bottomTextHeight + (bottomMarginY * 2);
-            int bottomBoxX = width - bottomBoxW - (int)(4 * sx);
-            int bottomBoxY = height - bottomBoxH - (int)(4 * sy);
-            DrawFilledRoundedRect(pixels, width, height, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH, (int)(bottomScale * 1.5f), Color.Black);
-            FlirBitmapFont.DrawText(pixels, width, height, bottomText,
-                bottomBoxX + bottomBoxW - bottomTextWidth - bottomMarginX, bottomBoxY + bottomMarginY, bottomScale,
-                FlirBitmapFont.FlirTextColor.R, FlirBitmapFont.FlirTextColor.G, FlirBitmapFont.FlirTextColor.B);
+            // Tmax (topo-direita)
+            string topText  = FormatTemperature(scaleMaxC ?? maxTemperatureC, compact: true);
+            using var topFont = new Font(FontFamily, topPx, FontStyle.Bold, GraphicsUnit.Pixel);
+            var topSz       = g.MeasureString(topText, topFont, PointF.Empty, strFmt);
+            int topBoxW     = topMX + (int)Math.Ceiling(topSz.Width) + topMX;
+            int topBoxH     = (int)Math.Round(capH_top) + topMY * 2;
+            int topBoxX     = width - topBoxW - (int)Math.Round(4f * sx);
+            int topBoxY     = (int)Math.Round(4f * sy);
+            FillRoundedRectGdi(g, topBoxX, topBoxY, topBoxW, topBoxH, topCornerR);
+            g.DrawString(topText, topFont, textBrush, topBoxX + topMX, topBoxY + topMY - capGap_top, strFmt);
+
+            // Tmin (base-direita)
+            string bottomText  = FormatTemperature(scaleMinC ?? minTemperatureC, compact: true);
+            using var bottomFont = new Font(FontFamily, topPx, FontStyle.Bold, GraphicsUnit.Pixel);
+            var bottomSz       = g.MeasureString(bottomText, bottomFont, PointF.Empty, strFmt);
+            int bottomBoxW     = topMX + (int)Math.Ceiling(bottomSz.Width) + topMX;
+            int bottomBoxH     = (int)Math.Round(capH_top) + topMY * 2;
+            int bottomBoxX     = width - bottomBoxW - (int)Math.Round(4f * sx);
+            int bottomBoxY     = height - bottomBoxH - (int)Math.Round(4f * sy);
+            FillRoundedRectGdi(g, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH, topCornerR);
+            g.DrawString(bottomText, bottomFont, textBrush, bottomBoxX + topMX, bottomBoxY + topMY - capGap_top, strFmt);
         }
+
+        // Conversão única para o buffer de pixels
+        var rendered = BgraFromBitmap(bitmap);
+        Buffer.BlockCopy(rendered, 0, pixels, 0, Math.Min(pixels.Length, rendered.Length));
     }
 
     /// <summary>
@@ -445,6 +487,27 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
     /// Desenha um retÃ¢ngulo arredondado preenchido (sem borda) diretamente no buffer BGRA.
     /// Usa cor sÃ³lida (preto) e bordas arredondadas simples.
     /// </summary>
+    /// <summary>
+    /// Desenha retângulo preenchido preto com cantos arredondados via GDI+.
+    /// </summary>
+    private static void FillRoundedRectGdi(Graphics g, int x, int y, int w, int h, int radius)
+    {
+        if (w <= 0 || h <= 0) return;
+        using var brush = new SolidBrush(Color.Black);
+        if (radius <= 0 || w < 2 * radius || h < 2 * radius)
+        {
+            g.FillRectangle(brush, x, y, w, h);
+            return;
+        }
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        path.AddArc(x,             y,             2 * radius, 2 * radius, 180, 90);
+        path.AddArc(x + w - 2 * radius, y,             2 * radius, 2 * radius, 270, 90);
+        path.AddArc(x + w - 2 * radius, y + h - 2 * radius, 2 * radius, 2 * radius,   0, 90);
+        path.AddArc(x,             y + h - 2 * radius, 2 * radius, 2 * radius,  90, 90);
+        path.CloseFigure();
+        g.FillPath(brush, path);
+    }
+
     private static void DrawFilledRoundedRect(byte[] pixels, int width, int height, int x, int y, int w, int h, int radius, Color color)
     {
         if (w <= 0 || h <= 0) return;
@@ -704,22 +767,33 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
     private static string FormatTemperatureValue(double? value, bool approximate = false)
     {
         if (!value.HasValue || !double.IsFinite(value.Value))
-            return approximate ? "~--.-" : "--.-";
+            return approximate ? "~--" : "--";
         var prefix = approximate ? "~" : string.Empty;
-        var formattedValue = value.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        // FLIR exibe sem decimal quando o valor é inteiro (ex.: 105, não 105.0)
+        double v = value.Value;
+        var formattedValue = Math.Abs(v - Math.Round(v)) < 0.05
+            ? ((int)Math.Round(v)).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
         return $"{prefix}{formattedValue}";
     }
 
     private static string FormatTemperature(double? value, bool compact = false)
     {
         if (!value.HasValue || !double.IsFinite(value.Value))
-            return compact ? "--.-" : "--.- C";
-        var formattedValue = value.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
-        return compact ? formattedValue : $"{formattedValue} C";
+            return compact ? "--" : "-- °C";
+        // FLIR exibe sem decimal quando o valor é inteiro (ex.: 106, não 106.0)
+        double v = value.Value;
+        var formattedValue = Math.Abs(v - Math.Round(v)) < 0.05
+            ? ((int)Math.Round(v)).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        return compact ? formattedValue : $"{formattedValue} °C";
     }
 
     /// <summary>
-    /// Preserva o logo FLIR sobrepondo PNG com transparência (EmbeddedResource).
+    /// Sobrepõe o logo FLIR (branco, como na câmera real) a partir do PNG embarcado.
+    /// O PNG original tem contornos escuros com detalhes (furinhos do diamante e R)
+    /// sobre fundo transparente, com padding grande. Este método recorta ao conteúdo
+    /// real, escala para o tamanho correto e inverte: escuro → branco.
     /// </summary>
     private static void OverlayFlirLogoOnly(byte[] result, byte[] originalPixels, int width, int height)
     {
@@ -728,22 +802,30 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
             var logo = LoadFlirLogoPng();
             if (logo is null) return;
 
+            // Bounds do conteúdo real dentro do PNG (medidos via análise):
+            // PNG = 1536×1024, conteúdo em (223,313)→(1214,648) = 992×336
+            var contentBounds = GetLogoCachedContentBounds(logo);
+
             double sx = width / 320.0;
             double sy = height / 240.0;
 
-            // Dimensões pixel-perfect medidas do FLIR0060 original
-            int destX = (int)(8 * sx);
+            // Posição e dimensões do logo no termograma (base 320×240):
+            // Medido dos originais FLIR E8xt (FLIR0060.jpg, FLIR0192.jpg).
+            int destX = (int)(4 * sx);
             int destY = (int)(220 * sy);
-            int destW = Math.Max(1, (int)(37 * sx));
-            int destH = Math.Max(1, (int)(15 * sy));
+            int destW = Math.Max(1, (int)(78 * sx));
+            int destH = Math.Max(1, (int)(18 * sy));
 
-            // Desenhar logo redimensionado
+            // Desenhar APENAS a região do conteúdo do logo, escalada ao destino
             using var scaledBmp = new Bitmap(destW, destH);
             using var g = Graphics.FromImage(scaledBmp);
             g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.DrawImage(logo, 0, 0, destW, destH);
+            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+            var destRect = new Rectangle(0, 0, destW, destH);
+            g.DrawImage(logo, destRect, contentBounds, GraphicsUnit.Pixel);
 
-            // Alpha blending pixel a pixel
+            // Alpha blending: contornos escuros → branco (como na câmera real)
             int stride = width * 4;
             for (int dy = 0; dy < destH; dy++)
             {
@@ -754,17 +836,63 @@ public sealed class FlirCameraUiOverlay : IFlirCameraUiOverlay
                     int destXPos = destX + dx;
                     if (destXPos < 0 || destXPos >= width) continue;
                     var sp = scaledBmp.GetPixel(dx, dy);
-                    if (sp.A < 10) continue;
+                    if (sp.A < 10) continue; // transparente = pular
+
+                    // Inverter: qualquer pixel com alpha → renderizar como branco
+                    // com a intensidade proporcional ao alpha original, amplificado para melhor visibilidade
                     int idx = (destYPos * stride) + (destXPos * 4);
                     float a = sp.A / 255f;
-                    result[idx]     = (byte)(sp.B * a + result[idx]     * (1 - a));
-                    result[idx + 1] = (byte)(sp.G * a + result[idx + 1] * (1 - a));
-                    result[idx + 2] = (byte)(sp.R * a + result[idx + 2] * (1 - a));
+                    a = Math.Min(1.0f, a * 1.5f);
+                    result[idx]     = (byte)(255 * a + result[idx]     * (1 - a)); // B
+                    result[idx + 1] = (byte)(255 * a + result[idx + 1] * (1 - a)); // G
+                    result[idx + 2] = (byte)(255 * a + result[idx + 2] * (1 - a)); // R
                     result[idx + 3] = 255;
                 }
             }
         }
         catch { /* Logo é opcional */ }
+    }
+
+    /// <summary>
+    /// Retorna o bounding box do conteúdo real (pixels com alpha alto) dentro do logo PNG,
+    /// com cache para evitar recalcular a cada frame.
+    /// </summary>
+    private static Rectangle? _cachedLogoContentBounds;
+    private static Rectangle GetLogoCachedContentBounds(Bitmap logo)
+    {
+        if (_cachedLogoContentBounds.HasValue) return _cachedLogoContentBounds.Value;
+
+        int w = logo.Width, h = logo.Height;
+        int minX = w, maxX = 0, minY = h, maxY = 0;
+
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                // Usa 200 para ignorar sombras/artefatos semi-transparentes do PNG original
+                if (logo.GetPixel(x, y).A > 200)
+                {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+
+        if (maxX <= minX || maxY <= minY)
+        {
+            _cachedLogoContentBounds = new Rectangle(0, 0, w, h);
+        }
+        else
+        {
+            // Adiciona um pequeno padding (2px)
+            int pad = 2;
+            minX = Math.Max(0, minX - pad);
+            minY = Math.Max(0, minY - pad);
+            maxX = Math.Min(w - 1, maxX + pad);
+            maxY = Math.Min(h - 1, maxY + pad);
+            _cachedLogoContentBounds = new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+        }
+        return _cachedLogoContentBounds.Value;
     }
 
     private static Bitmap? _cachedFlirLogo;

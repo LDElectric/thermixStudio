@@ -163,12 +163,18 @@ public sealed partial class MainViewModel
                         if (t < matMin) matMin = t;
                         if (t > matMax) matMax = t;
                     }
-                if (displayScale.max > matMax + 0.3)
-                    spotLabel = "Máx.";
-                else if (displayScale.min < matMin - 0.3)
-                    spotLabel = "Min";
+
+                // Comparar quanto cada extremo da escala se estende além da cena real.
+                // O lado que se estende MAIS define o prefixo (evita empate de threshold fixo).
+                double deltaMax = displayScale.max - matMax; // positivo = escala acima da cena
+                double deltaMin = matMin - displayScale.min; // positivo = escala abaixo da cena
+
+                if (deltaMax > deltaMin && deltaMax > 0.05)
+                    spotLabel = "máx.";
+                else if (deltaMin > deltaMax && deltaMin > 0.05)
+                    spotLabel = "min.";
                 else if (Math.Abs((spotTemperature.Value + 273.15) - Math.Round(spotTemperature.Value + 273.15)) > 0.05)
-                    spotApprox = true; // Kelvin não-inteiro → "~"
+                    spotApprox = true;
             }
 
             finalPixels = _viewPipeline.OverlayCameraUI(

@@ -49,7 +49,7 @@ internal static class FlirBitmapFont
             ".XX.XX.",
             "XX...XX",
             "XX...XX",
-            "XX.X.XX",
+            "XX...XX",
             "XX...XX",
             "XX...XX",
             "XX...XX",
@@ -260,6 +260,86 @@ internal static class FlirBitmapFont
             "....",
             "....",
             "....");
+
+        // --- Letras para prefixos (máx. / Min) ---
+
+        // 'M' maiúsculo - 8px largura
+        Define(map, 'M', 8,
+            "XX....XX",
+            "XXX..XXX",
+            "XXXXXXXX",
+            "XX.XX.XX",
+            "XX....XX",
+            "XX....XX",
+            "XX....XX",
+            "XX....XX",
+            "XX....XX",
+            "XX....XX");
+
+        // 'm' minúsculo - 8px largura, x-height nas linhas 4-9
+        Define(map, 'm', 8,
+            "........",
+            "........",
+            "........",
+            "........",
+            "XX.XX...",
+            "XX.XX.X.",
+            "XX.XX.XX",
+            "XX.XX.XX",
+            "XX.XX.XX",
+            "XX.XX.XX");
+
+        // 'á' com acento - 6px largura
+        Define(map, 'á', 6,
+            "...X..",
+            "......",
+            ".XXXX.",
+            "XX...X",
+            ".XXXXX",
+            "XX...X",
+            "XX...X",
+            "XX..XX",
+            ".XXXXX",
+            "......");
+
+        // 'x' minúsculo - 6px largura, x-height nas linhas 4-9
+        Define(map, 'x', 6,
+            "......",
+            "......",
+            "......",
+            "......",
+            "XX..XX",
+            ".XXXX.",
+            "..XX..",
+            ".XXXX.",
+            "XX..XX",
+            "......");
+
+        // 'i' minúsculo - 3px largura
+        Define(map, 'i', 3,
+            "...",
+            ".X.",
+            "...",
+            "...",
+            "XX.",
+            ".X.",
+            ".X.",
+            ".X.",
+            "XXX",
+            "...");
+
+        // 'n' minúsculo - 6px largura, x-height nas linhas 4-9
+        Define(map, 'n', 6,
+            "......",
+            "......",
+            "......",
+            "......",
+            "XXXXX.",
+            "XX..XX",
+            "XX..XX",
+            "XX..XX",
+            "XX..XX",
+            "......");
 
         return map;
     }
