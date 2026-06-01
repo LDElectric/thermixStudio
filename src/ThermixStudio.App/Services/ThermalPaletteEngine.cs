@@ -212,10 +212,23 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
 
         var pixels = new byte[width * height * 4];
         var useLimitColors = FlirColorUtils.UsesFlirLimitColors(metadata);
-        var belowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteBelowColorYCrCb, fallbackY: 50);
-        var aboveColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteAboveColorYCrCb, fallbackY: 170);
         var underflowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteUnderflowColorYCrCb, fallbackY: 41);
         var overflowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteOverflowColorYCrCb, fallbackY: 67);
+
+        if (ShouldUseFlirEmbeddedDisplayMapping(paletteName, metadata))
+        {
+            return RenderFlirEmbeddedDisplay(
+                temperatures,
+                width,
+                height,
+                lut,
+                minT,
+                maxT,
+                useLimitColors,
+                underflowColor,
+                overflowColor,
+                metadata);
+        }
 
         // 1. Calcular histograma de Sinal (Plateau Equalization / DDE algorithm)
         int numBins = 16384; // Resolução de 14 bits típica das matrizes térmicas
@@ -231,26 +244,14 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                 double val = SignalFromTemp(t);
                 vals[i++] = val;
 
-                if (useLimitColors && (val < minVal || val > maxVal))
-                {
-                    continue;
-                }
-
                 int bin = (int)(((val - minVal) / range) * (numBins - 1));
                 bin = Math.Clamp(bin, 0, numBins - 1);
                 hist[bin]++;
             }
         }
 
-        // 2. Limitar picos do histograma (Plateau) para que fundos gigantes não esmaguem o contraste
-        // Base: 0.05% dos pixels. PaletteStretch da câmera atua como multiplicador:
-        //   stretch=1 → 0.025% | stretch=2 → 0.05% (normal) | stretch=4 → 0.10%
-        double plateauFraction = 0.0005;
-        if (metadata?.PaletteStretch.HasValue == true && metadata.PaletteStretch.Value > 0)
-        {
-            plateauFraction = Math.Clamp(0.0005 * (metadata.PaletteStretch.Value / 2.0), 0.0001, 0.002);
-        }
-        int plateau = Math.Max(1, (int)(width * height * plateauFraction));
+        // 2. Limitar picos do histograma (Plateau) — 0.1% dos pixels
+        int plateau = Math.Max(1, (int)(width * height * 0.001));
         double[] clippedHist = new double[numBins];
         for (int b = 0; b < numBins; b++)
         {
@@ -268,20 +269,8 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
 
         double cdfMax = currentSum;
         if (cdfMax <= 0) cdfMax = 1;
-        double cdfMin = 0;
-        for (int b = 0; b < numBins; b++)
-        {
-            if (hist[b] > 0)
-            {
-                cdfMin = cdf[b];
-                break;
-            }
-        }
 
-        double cdfRange = cdfMax - cdfMin;
-        if (cdfRange <= 0) cdfRange = 1;
-
-        // 3. Mapear os valores pelo CDF Equalizado (Distribuição Não-Linear igual FLIR)
+       // 3. Mapear os valores pelo CDF Equalizado (Distribuição Não-Linear igual FLIR)
         i = 0;
         // Limites de clipping do sensor — usar valores da câmera se disponíveis, defaults FLIR caso contrário
         double sensorMinC = metadata?.CameraTemperatureMinClip ?? -40.0;
@@ -311,22 +300,30 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                 // FLIR uses Above/Below for Alarms. For regular visual scale, it clamps to palette limits.
                 double binPosition = ((val - minVal) / range) * (numBins - 1);
                 double linearNorm  = Math.Clamp((val - minVal) / range, 0.0, 1.0);
-                double heNorm      = (InterpolateCdf(cdf, binPosition) - cdfMin) / cdfRange;
-                double normalized = (linearNorm * 0.70) + (heNorm * 0.30);
+                double heNorm      = InterpolateCdf(cdf, binPosition) / cdfMax;
+                heNorm = Math.Clamp(heNorm, 0.0, 1.0);
+
+                // Prioriza a escala linear para manter fidelidade de cor entre capturas,
+                // usando HE apenas como ajuste local de contraste.
+                double normalized = (linearNorm * 0.88) + (heNorm * 0.12);
 
                 // Two-zone smooth curve — replica o DDE da FLIR:
                 //   Zona fria  (< knee): gammaOut > 1 -> comprime midtones, empurra para roxo escuro
                 //   Zona quente (> knee): hiOut -> expande, abrindo os laranjas e amarelos suavemente
-                double knee     = 0.75;
-                double softness = 0.12;
+                double knee     = 0.78;
+                double softness = 0.10;
                 double curveT   = Math.Clamp((normalized - (knee - softness)) / (2.0 * softness), 0.0, 1.0);
                 double tSmooth  = curveT * curveT * (3.0 - 2.0 * curveT);
 
-                double gammaOut = Math.Pow(Math.Max(normalized / knee, 1e-6), 1.25) * knee;
+                double gammaOut = Math.Pow(Math.Max(normalized / knee, 1e-6), 1.08) * knee;
                 double xHi      = Math.Clamp((normalized - knee) / (1.0 - knee), 0.0, 1.0);
-                double hiOut    = knee + Math.Pow(xHi, 0.15) * (1.0 - knee);
+                double hiOut    = knee + Math.Pow(xHi, 0.22) * (1.0 - knee);
 
                 normalized = Math.Clamp(gammaOut * (1.0 - tSmooth) + hiOut * tSmooth, 0.0, 1.0);
+
+                // Reforça transição de médios quentes para evitar magenta excessivo.
+                double midLift = SmoothStep(0.46, 0.78, normalized) * (1.0 - SmoothStep(0.84, 0.96, normalized));
+                normalized = Math.Clamp(normalized + (midLift * 0.028), 0.0, 1.0);
 
                 // Preserve detalhamento nos laranjas e ocre (warm detail)
                 normalized = PreserveWarmDetail(normalized);
@@ -342,6 +339,109 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
      return pixels;
 
      }
+
+    private static bool ShouldUseFlirEmbeddedDisplayMapping(string paletteName, RadiometricMetadata? metadata)
+    {
+        if (metadata?.EmbeddedPaletteBgra is not { Length: 256 * 4 })
+        {
+            return false;
+        }
+
+        if (!FlirColorUtils.IsFlir(metadata))
+        {
+            return false;
+        }
+
+        var requestedOriginal = paletteName.Equals("Original", StringComparison.OrdinalIgnoreCase);
+        var matchesMetadataName = !string.IsNullOrWhiteSpace(metadata.PaletteName) &&
+            paletteName.Equals(metadata.PaletteName, StringComparison.OrdinalIgnoreCase);
+        var matchesDetectedPalette = metadata.DetectedPalette.HasValue &&
+            paletteName.Equals(metadata.DetectedPalette.Value.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        return requestedOriginal || matchesMetadataName || matchesDetectedPalette;
+    }
+
+    private static byte[] RenderFlirEmbeddedDisplay(
+        double[,] temperatures,
+        int width,
+        int height,
+        ThermalPaletteLutData lut,
+        double minT,
+        double maxT,
+        bool useLimitColors,
+        (byte R, byte G, byte B) underflowColor,
+        (byte R, byte G, byte B) overflowColor,
+        RadiometricMetadata? metadata)
+    {
+        var pixels = new byte[width * height * 4];
+        var range = Math.Max(0.01, maxT - minT);
+        var sensorMinC = metadata?.CameraTemperatureMinClip ?? -40.0;
+        var sensorMaxC = metadata?.CameraTemperatureMaxClip ?? 280.0;
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                var t = temperatures[y, x];
+                var dest = (y * width + x) * 4;
+
+                if (useLimitColors && t < sensorMinC)
+                {
+                    FlirColorUtils.WriteLimitColor(underflowColor, pixels, dest);
+                    continue;
+                }
+
+                if (useLimitColors && t > sensorMaxC)
+                {
+                    FlirColorUtils.WriteLimitColor(overflowColor, pixels, dest);
+                    continue;
+                }
+
+                var normalized = Math.Clamp((t - minT) / range, 0.0, 1.0);
+                normalized = ApplyFlirPaletteStretch(normalized);
+
+                WriteInterpolatedLutColor(lut, normalized, pixels, dest);
+                pixels[dest + 3] = 255;
+            }
+        }
+
+        return pixels;
+    }
+
+    private static double ApplyFlirPaletteStretch(double normalized)
+    {
+        ReadOnlySpan<double> source =
+        [
+            0.000, 0.038, 0.062, 0.088, 0.113, 0.138, 0.163, 0.188, 0.213, 0.237,
+            0.288, 0.388, 0.488, 0.588, 0.688, 0.788, 0.863, 0.913, 1.000
+        ];
+        ReadOnlySpan<double> target =
+        [
+            0.000, 0.027, 0.058, 0.090, 0.148, 0.233, 0.314, 0.444, 0.511, 0.538,
+            0.578, 0.641, 0.704, 0.762, 0.816, 0.865, 0.924, 0.951, 1.000
+        ];
+
+        normalized = Math.Clamp(normalized, 0.0, 1.0);
+        for (var i = 0; i < source.Length - 1; i++)
+        {
+            if (normalized > source[i + 1])
+            {
+                continue;
+            }
+
+            var width = source[i + 1] - source[i];
+            if (width <= 0)
+            {
+                return target[i];
+            }
+
+            var t = (normalized - source[i]) / width;
+            t = t * t * (3.0 - (2.0 * t));
+            return target[i] + ((target[i + 1] - target[i]) * t);
+        }
+
+        return 1.0;
+    }
 
     private static double[] SmoothHistogram(double[] hist)
     {
@@ -396,31 +496,32 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
     private static double PreserveWarmDetail(double normalized)
     {
         // faixa quente inicia mais cedo
-        double warm1 = SmoothStep(0.52, 0.68, normalized);
+        double warm1 = SmoothStep(0.56, 0.70, normalized);
 
         // faixa onde a FLIR preserva o amarelo escuro
-        double warm2 = SmoothStep(0.68, 0.84, normalized);
+        double warm2 = SmoothStep(0.70, 0.86, normalized);
 
         // liberar perto do branco real
         double whiteRelease = SmoothStep(0.90, 0.985, normalized);
 
+        // Hold original — preserva laranjas/amarelos sem desbotar
         double hold =
-            warm1 * 0.030 +
-            warm2 * 0.045;
+            warm1 * 0.015 +
+            warm2 * 0.020;
 
         hold *= (1.0 - whiteRelease);
 
-        // pequena compressão local da faixa quente
+        // compressão local da faixa quente
         double x = normalized;
 
-        if (x > 0.66 && x < 0.90)
+        if (x > 0.68 && x < 0.90)
         {
-            double t = (x - 0.66) / (0.24);
+            double t = (x - 0.68) / (0.22);
 
             // curva S leve
             t = t * t * (3.0 - 2.0 * t);
 
-            x -= 0.018 * t;
+            x -= 0.008 * t;
         }
 
         return Math.Clamp(x - hold, 0.0, 1.0);

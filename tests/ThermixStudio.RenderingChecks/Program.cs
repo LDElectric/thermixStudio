@@ -7,6 +7,20 @@ var root = FindRepositoryRoot();
 var outputDir = Path.Combine(root, "tests", "ThermixStudio.RenderingChecks", "output");
 Directory.CreateDirectory(outputDir);
 
+if (args.Contains("--color-parity-2"))
+{
+    Console.WriteLine("\n=== Paridade cromatica 2.jpg ===");
+    await RenderAndCompareThermalSceneAsync(
+        root,
+        outputDir,
+        "2",
+        scaleMinC: 21.4,
+        scaleMaxC: 44.7,
+        maxSceneRmse: 14.0);
+    Console.WriteLine("Color parity check OK.");
+    return;
+}
+
 // ─── Teste de hipótese: prefixo "máx." / "min." / "~" ──────────────────
 Console.WriteLine("\n=== Teste de hipótese dos prefixos ===");
 await TestPrefixHypothesis(root, "FLIR0058"); // sem assertiva: matrix excede a escala EXIF em ambos lados
@@ -16,6 +30,15 @@ await TestPrefixHypothesis(root, "FLIR0065");
 // ─── Render comparativo: FLIR0060 vs original ────────────────────────────
 Console.WriteLine("\n=== Render comparativo FLIR0060 ===");
 await RenderAndCompareAsync(root, outputDir, "FLIR0060");
+
+Console.WriteLine("\n=== Paridade cromatica 2.jpg ===");
+await RenderAndCompareThermalSceneAsync(
+    root,
+    outputDir,
+    "2",
+    scaleMinC: 21.4,
+    scaleMaxC: 44.7,
+    maxSceneRmse: 14.0);
 
 var referencePath = Path.Combine(root, "FLIR0192.jpg");
 if (!File.Exists(referencePath))
@@ -221,22 +244,37 @@ static bool IsLikelyOverlay(Color color)
 
 static string FindRepositoryRoot()
 {
-    var current = AppContext.BaseDirectory;
-    while (!string.IsNullOrWhiteSpace(current))
+    var probes = new[]
     {
-        if (File.Exists(Path.Combine(current, "ThermixStudio.slnx")) &&
-            File.Exists(Path.Combine(current, "FLIR0192.jpg")))
-        {
-            return current;
-        }
+        Directory.GetCurrentDirectory(),
+        AppContext.BaseDirectory
+    };
 
-        var parent = Directory.GetParent(current)?.FullName;
-        if (string.IsNullOrWhiteSpace(parent) || parent == current)
+    foreach (var probeRoot in probes)
+    {
+        var current = probeRoot;
+        while (!string.IsNullOrWhiteSpace(current))
         {
-            break;
-        }
+            var hasSolution =
+                File.Exists(Path.Combine(current, "ThermixStudio.slnx")) ||
+                File.Exists(Path.Combine(current, "src", "ThermixStudio.slnx"));
+            var hasReference =
+                File.Exists(Path.Combine(current, "FLIR0192.jpg")) ||
+                File.Exists(Path.Combine(current, "2.jpg"));
 
-        current = parent;
+            if (hasSolution && hasReference)
+            {
+                return current;
+            }
+
+            var parent = Directory.GetParent(current)?.FullName;
+            if (string.IsNullOrWhiteSpace(parent) || parent == current)
+            {
+                break;
+            }
+
+            current = parent;
+        }
     }
 
     throw new DirectoryNotFoundException("Raiz do repositorio nao encontrada.");
@@ -248,6 +286,116 @@ static void Assert(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static async Task RenderAndCompareThermalSceneAsync(
+    string root,
+    string outputDir,
+    string name,
+    double scaleMinC,
+    double scaleMaxC,
+    double maxSceneRmse)
+{
+    var origPath = Path.Combine(root, $"{name}.jpg");
+    if (!File.Exists(origPath))
+    {
+        Console.WriteLine($"{name}: arquivo nao encontrado");
+        return;
+    }
+
+    var exifTool = new ExifToolService();
+    var analysis = new ThermalAnalysisService(exifTool);
+    var img = await analysis.LoadImageAsync(origPath);
+    var palette = new ThermalPaletteEngine();
+    var thermalPixels = await palette.RenderThermalWithPaletteAsync(
+        img.Temperatures,
+        img.Width,
+        img.Height,
+        "Iron",
+        scaleMinC,
+        scaleMaxC,
+        img.Metadata);
+
+    var outPath = Path.Combine(outputDir, $"{name}_thermal_color_parity.png");
+    SaveBgraToPng(thermalPixels, img.Width, img.Height, outPath);
+
+    using var reference = new Bitmap(origPath);
+    var comparison = CompareThermalScene(reference, thermalPixels, img.Width, img.Height);
+    Console.WriteLine($"  Render salvo: {outPath}");
+    Console.WriteLine($"  Escala fixa: {scaleMinC:F1} C / {scaleMaxC:F1} C");
+    Console.WriteLine($"  Scene RGB RMSE: {comparison.SceneRmse:F2}");
+    Console.WriteLine($"  Mean RGB reference: {comparison.RefMeanR:F1}, {comparison.RefMeanG:F1}, {comparison.RefMeanB:F1}");
+    Console.WriteLine($"  Mean RGB render:    {comparison.RndMeanR:F1}, {comparison.RndMeanG:F1}, {comparison.RndMeanB:F1}");
+
+    Assert(comparison.SceneRmse <= maxSceneRmse,
+        $"{name}: paridade cromatica insuficiente. RMSE={comparison.SceneRmse:F2} limite={maxSceneRmse:F2}");
+}
+
+static ThermalSceneComparison CompareThermalScene(Bitmap reference, byte[] rendered, int width, int height)
+{
+    var totalSquared = 0.0;
+    var count = 0;
+    var refR = 0.0;
+    var refG = 0.0;
+    var refB = 0.0;
+    var rndR = 0.0;
+    var rndG = 0.0;
+    var rndB = 0.0;
+
+    for (var y = 26; y <= Math.Min(height - 1, 214); y++)
+    {
+        for (var x = 0; x < Math.Min(width, 270); x++)
+        {
+            if (x < 70 && y > 205)
+            {
+                continue;
+            }
+
+            var original = reference.GetPixel(x, y);
+            if (IsLikelyOverlay(original))
+            {
+                continue;
+            }
+
+            var brightness = (original.R + original.G + original.B) / 3;
+            if (brightness < 18)
+            {
+                continue;
+            }
+
+            var idx = ((y * width) + x) * 4;
+            var b = rendered[idx];
+            var g = rendered[idx + 1];
+            var r = rendered[idx + 2];
+            var dr = original.R - r;
+            var dg = original.G - g;
+            var db = original.B - b;
+
+            totalSquared += (dr * dr) + (dg * dg) + (db * db);
+            refR += original.R;
+            refG += original.G;
+            refB += original.B;
+            rndR += r;
+            rndG += g;
+            rndB += b;
+            count++;
+        }
+    }
+
+    if (count == 0)
+    {
+        return new ThermalSceneComparison(double.MaxValue, 0, 0, 0, 0, 0, 0);
+    }
+
+    var rmse = Math.Sqrt(totalSquared / (count * 3.0));
+    return new ThermalSceneComparison(
+        rmse,
+        refR / count,
+        refG / count,
+        refB / count,
+        rndR / count,
+        rndG / count,
+        rndB / count);
 }
 
 static async Task RenderAndCompareAsync(string root, string outputDir, string name)
@@ -263,8 +411,8 @@ static async Task RenderAndCompareAsync(string root, string outputDir, string na
     var vs = await detector.DetectAsync(origPath, img);
 
     // Usar escala visual detectada, fallback para EXIF
-    double scaleMin = vs.Success ? (double)vs.MinC : (img.Metadata.ImageTemperatureMinK.HasValue ? img.Metadata.ImageTemperatureMinK.Value - 273.15 : 20);
-    double scaleMax = vs.Success ? (double)vs.MaxC : (img.Metadata.ImageTemperatureMaxK.HasValue ? img.Metadata.ImageTemperatureMaxK.Value - 273.15 : 100);
+    double scaleMin = vs.Success && vs.MinC.HasValue ? vs.MinC.Value : (img.Metadata.ImageTemperatureMinK.HasValue ? img.Metadata.ImageTemperatureMinK.Value - 273.15 : 20);
+    double scaleMax = vs.Success && vs.MaxC.HasValue ? vs.MaxC.Value : (img.Metadata.ImageTemperatureMaxK.HasValue ? img.Metadata.ImageTemperatureMaxK.Value - 273.15 : 100);
 
     // Computar delta para prefixo
     double matMin = double.MaxValue, matMax = double.MinValue;
@@ -502,3 +650,12 @@ record TypographyComparison(
     bool OrigSuffixTopAligned, bool RndSuffixTopAligned,
     int OrigTopRightH, int RndTopRightH,
     int OrigBotRightH, int RndBotRightH);
+
+record ThermalSceneComparison(
+    double SceneRmse,
+    double RefMeanR,
+    double RefMeanG,
+    double RefMeanB,
+    double RndMeanR,
+    double RndMeanG,
+    double RndMeanB);
