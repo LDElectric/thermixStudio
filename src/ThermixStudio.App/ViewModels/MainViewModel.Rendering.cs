@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ThermixStudio.App.Services;
 using ThermixStudio.Core;
+using ThermixStudio.Core.Thermal;
 using CommunityToolkit.Mvvm.Input;
 
 namespace ThermixStudio.App.ViewModels;
@@ -26,6 +27,12 @@ public sealed partial class MainViewModel
     private double _cachedMatrixMinC = double.MaxValue;
     private double _cachedMatrixMaxC = double.MinValue;
 
+    // ── Flag para exportação de render limpo (sem overlay/logo/escala) ──
+    public static bool SuppressOverlay { get; set; }
+
+    // ── LUT Temperatura→Cor — construída 1x, aplicada todo frame ──
+    private TemperatureColorLut? _temperatureLut;
+
     private void ClearPerThermogramCaches()
     {
         _cachedOriginalPath = null;
@@ -35,6 +42,7 @@ public sealed partial class MainViewModel
         _cachedVisibleAlignedSize = default;
         _cachedMatrixMinC = double.MaxValue;
         _cachedMatrixMaxC = double.MinValue;
+        _temperatureLut = null;
     }
 
     private void UpdateDisplayImage()
@@ -84,6 +92,35 @@ public sealed partial class MainViewModel
 
         var hasOriginal = TryLoadOriginalCameraBgraPixels(width, height, out var originalPixels);
         var hasVisible = TryLoadVisibleBgraPixels(width, height, out var visiblePixels);
+
+        // ══════════════════════════════════════════════════════════════
+        // TemperatureColorLut: mapeia TEMPERATURA → COR direto do original.
+        // Universal — funciona para qualquer cena, qualquer termograma.
+        // Construído 1x, aplicado instantaneamente todo frame.
+        // ══════════════════════════════════════════════════════════════
+        if (hasOriginal && originalPixels is not null &&
+            ImageViewMode != ImageViewMode.Original &&
+            ImageViewMode != ImageViewMode.Visible &&
+            _loadedImage?.Temperatures is not null)
+        {
+            if (_temperatureLut == null)
+            {
+                double buildMin = LevelMinC;
+                double buildMax = LevelMaxC;
+                if (buildMax <= buildMin) { buildMin = _loadedImage.Temperatures.Cast<double>().Min(); buildMax = _loadedImage.Temperatures.Cast<double>().Max(); }
+
+                _temperatureLut = TemperatureColorLut.Build(
+                    _loadedImage.Temperatures, originalPixels, width, height,
+                    buildMin, buildMax, numBins: 256, cropMargin: 0.08);
+                Debug.WriteLine("[TEMP-LUT] Construida para esta imagem.");
+            }
+
+            // Aplica LUT temperatura→cor (substitui thermalPixels)
+            for (int i = 3; i < thermalPixels.Length; i += 4)
+                thermalPixels[i] = 255; // alpha
+            _temperatureLut.Apply(_loadedImage.Temperatures, thermalPixels, width, height);
+        }
+
         var spotTemperature = GetSpotTemperature(_loadedImage, hasOriginal ? originalPixels : null, displayScale);
         var spotIsApproximate = hasOriginal && originalPixels is not null
             ? DetectSpotApproximationMarker(originalPixels, width, height)
@@ -110,7 +147,6 @@ public sealed partial class MainViewModel
 
         if (ImageViewMode == ImageViewMode.Original && hasOriginal)
         {
-            DisplayImage = null;
             DisplayImage = BuildBitmap(new ThermalRenderResult
             {
                 Width = width,
@@ -126,7 +162,7 @@ public sealed partial class MainViewModel
         if (ImageViewMode == ImageViewMode.Visible && hasVisible)
         {
             var visibleFinalPixels = visiblePixels!;
-            if (hasOriginal)
+            if (hasOriginal && !SuppressOverlay)
             {
                 visibleFinalPixels = _viewPipeline.OverlayCameraUI(
                     visibleFinalPixels,
@@ -144,7 +180,6 @@ public sealed partial class MainViewModel
                     false);
             }
 
-            DisplayImage = null;
             DisplayImage = BuildBitmap(new ThermalRenderResult
             {
                 Width = width,
@@ -170,9 +205,11 @@ public sealed partial class MainViewModel
             };
         }
 
-        if (hasOriginal && originalPixels is not null)
+        if (hasOriginal && originalPixels is not null && !SuppressOverlay)
         {
             // Prefixo do spot — validado com dados reais (FLIR0060, FLIR0065)
+            // ~ (til) só aparece se DetectSpotApproximationMarker encontrar o marcador na imagem original
+            // máx./mín. só aparecem se a escala se estender além da cena real
             string? spotLabel = _loadedImage.Metadata.SpotLabel;
             bool spotApprox = spotIsApproximate ?? false;
             if (string.IsNullOrWhiteSpace(spotLabel) && spotTemperature.HasValue)
@@ -203,8 +240,8 @@ public sealed partial class MainViewModel
                     spotLabel = "máx.";
                 else if (deltaMin > deltaMax && deltaMin > 0.05)
                     spotLabel = "min.";
-                else if (Math.Abs((spotTemperature.Value + 273.15) - Math.Round(spotTemperature.Value + 273.15)) > 0.05)
-                    spotApprox = true;
+                // ~ (aproximado) NÃO é inferido — só aparece se detectado na imagem original
+                // ou definido explicitamente no metadata (SpotLabel = "~")
             }
 
             finalPixels = _viewPipeline.OverlayCameraUI(
@@ -227,7 +264,6 @@ public sealed partial class MainViewModel
         }
 
         CurrentScaleLabel = FormatVisibleScaleLabel(_loadedImage, displayScale.min, displayScale.max);
-        DisplayImage = null;
         DisplayImage = BuildBitmap(new ThermalRenderResult
         {
             Width = width,
@@ -242,7 +278,7 @@ public sealed partial class MainViewModel
     {
         var wb = new WriteableBitmap(render.Width, render.Height, 96, 96, PixelFormats.Bgra32, null);
         wb.WritePixels(new System.Windows.Int32Rect(0, 0, render.Width, render.Height), render.BgraPixels, render.Width * 4, 0);
-        wb.Freeze();
+        // Não congela (Freeze) — sempre usado na UI thread; evita alocação extra
         return wb;
     }
 
@@ -269,11 +305,12 @@ public sealed partial class MainViewModel
                 return thermalPixels.Length > 0;
             }
 
-            thermalPixels = _viewPipeline.RenderRadiometricWithPaletteAsync(
+            // Usa renderização síncrona via Task.Run para não bloquear a UI com async-over-sync
+            var profile = RenderProfile.FromMetadata(image.Metadata, levelMinC, levelMaxC);
+            thermalPixels = Task.Run(() => _viewPipeline.RenderRadiometricWithProfileAsync(
                 image,
                 palette.ToString(),
-                levelMinC,
-                levelMaxC).GetAwaiter().GetResult();
+                profile)).GetAwaiter().GetResult();
             return thermalPixels.Length > 0;
         }
         catch
@@ -570,15 +607,19 @@ public sealed partial class MainViewModel
 
     private static (double min, double max) GetPreferredThermalRange(ThermalImageData image)
     {
-        if (image.Metadata.VisualScaleMinC.HasValue && image.Metadata.VisualScaleMaxC.HasValue)
-        {
-            var visualMin = image.Metadata.VisualScaleMinC.Value;
-            var visualMax = image.Metadata.VisualScaleMaxC.Value;
-            if (double.IsFinite(visualMin) && double.IsFinite(visualMax) && visualMax > visualMin)
-            {
-                return (visualMin, visualMax);
-            }
-        }
+        // ══════════════════════════════════════════════════════════════
+        // TESTE: VisualScale DESLIGADO — pula direto para PaletteScale.
+        // VisualScale é inferido (OCR) e pode corromper a normalização.
+        // ══════════════════════════════════════════════════════════════
+        // if (image.Metadata.VisualScaleMinC.HasValue && image.Metadata.VisualScaleMaxC.HasValue)
+        // {
+        //     var visualMin = image.Metadata.VisualScaleMinC.Value;
+        //     var visualMax = image.Metadata.VisualScaleMaxC.Value;
+        //     if (double.IsFinite(visualMin) && double.IsFinite(visualMax) && visualMax > visualMin)
+        //     {
+        //         return (visualMin, visualMax);
+        //     }
+        // }
 
         if (image.Metadata.PaletteScaleMinC.HasValue && image.Metadata.PaletteScaleMaxC.HasValue)
         {

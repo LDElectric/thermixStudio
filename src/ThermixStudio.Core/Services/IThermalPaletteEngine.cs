@@ -1,5 +1,6 @@
 using System.Drawing;
 using ThermixStudio.Core;
+using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.Core.Services;
 
@@ -26,6 +27,12 @@ public interface IThermalPaletteEngine
     /// </summary>
     /// <param name="paletteName">Nome da paleta ("Iron", "Rainbow", "Grayscale", etc)</param>
     Task<ThermalPaletteLutData?> LoadLutAsync(string paletteName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Obtém uma LUT já carregada do cache (síncrono, sem I/O).
+    /// Retorna null se a LUT ainda não foi carregada via <see cref="LoadLutAsync"/>.
+    /// </summary>
+    ThermalPaletteLutData? GetCachedLut(string paletteName);
 
     /// <summary>
     /// Detecta automaticamente a paleta original de uma imagem térmica.
@@ -56,12 +63,26 @@ public interface IThermalPaletteEngine
     /// <param name="levelMinC">Temperatura mínima para escala (null = auto)</param>
     /// <param name="levelMaxC">Temperatura máxima para escala (null = auto)</param>
     /// <returns>Pixels BGRA renderizados</returns>
+    [Obsolete("Use RenderWithProfileAsync com RenderProfile.FromMetadata()")]
     Task<byte[]> RenderThermalWithPaletteAsync(
         double[,] temperatures,
         int width, int height,
         string paletteName,
         double? levelMinC = null,
         double? levelMaxC = null,
+        RadiometricMetadata? metadata = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renderiza matriz térmica usando um <see cref="Thermal.RenderProfile"/> por imagem.
+    /// O perfil controla TODAS as transformações: Planck, stretch, whiteboost e limit colors.
+    /// Elimina constantes globais — cada termograma define seu próprio pipeline.
+    /// </summary>
+    Task<byte[]> RenderWithProfileAsync(
+        double[,] temperatures,
+        int width, int height,
+        string paletteName,
+        RenderProfile profile,
         RadiometricMetadata? metadata = null,
         CancellationToken cancellationToken = default);
 }

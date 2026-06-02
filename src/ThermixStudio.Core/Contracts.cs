@@ -53,6 +53,17 @@ public interface IImageMetadataPreservationService
         string originalImagePath,
         string exportedImagePath,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cria um JPEG final com a imagem do render (PNG) e TODOS os metadados
+    /// radiométricos do arquivo original (APP1 FLIR, EXIF, XMP, etc.).
+    /// Preserva RawThermalImage, Palette, Planck constants e demais dados binários.
+    /// </summary>
+    Task<bool> CreateJpegWithFullMetadataAsync(
+        string originalImagePath,
+        string renderPngPath,
+        string outputJpgPath,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IThermalRenderEngine

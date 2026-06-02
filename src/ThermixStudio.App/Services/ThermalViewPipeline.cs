@@ -2,6 +2,7 @@ using System.Drawing;
 using System.IO;
 using ThermixStudio.Core;
 using ThermixStudio.Core.Services;
+using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.App.Services;
 
@@ -47,6 +48,16 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
         _renderEngine.SetEmbeddedPalette(embedded);
     }
 
+    /// <summary>
+    /// Pré-aquece o cache de LUTs das paletas mais comuns (Iron, Rainbow, Grayscale)
+    /// em background para que a primeira renderização seja instantânea.
+    /// </summary>
+    public async Task PreWarmPalettesAsync(CancellationToken cancellationToken = default)
+    {
+        // Carrega as paletas mais usadas primeiro; as demais carregam sob demanda
+        await _paletteEngine.LoadLutAsync("Iron", cancellationToken).ConfigureAwait(false);
+    }
+
     public Task<ImageViewMode?> DetectCaptureModeFromMetadataAsync(string imagePath, CancellationToken cancellationToken = default)
         => _modeDetectionService.DetectFromFileAsync(imagePath, cancellationToken);
 
@@ -70,13 +81,28 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
         double? levelMinC,
         double? levelMaxC,
         CancellationToken cancellationToken = default)
-        => _paletteEngine.RenderThermalWithPaletteAsync(
+    {
+        var profile = RenderProfile.FromMetadata(
+            image.Metadata,
+            levelMinC ?? 0,
+            levelMaxC ?? 100);
+        return RenderRadiometricWithProfileAsync(image, paletteName, profile, cancellationToken);
+    }
+
+    /// <summary>
+    /// Renderização radiométrica com <see cref="RenderProfile"/> por imagem.
+    /// </summary>
+    public Task<byte[]> RenderRadiometricWithProfileAsync(
+        ThermalImageData image,
+        string paletteName,
+        RenderProfile profile,
+        CancellationToken cancellationToken = default)
+        => _paletteEngine.RenderWithProfileAsync(
             image.Temperatures,
             image.Width,
             image.Height,
             paletteName,
-            levelMinC,
-            levelMaxC,
+            profile,
             image.Metadata,
             cancellationToken);
 
@@ -124,9 +150,9 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
             !string.IsNullOrWhiteSpace(paletteName) &&
             !paletteName.Equals("Original", StringComparison.OrdinalIgnoreCase))
         {
-            scaleLut = _paletteEngine.LoadLutAsync(paletteName)
-                .GetAwaiter()
-                .GetResult();
+            // Usa lookup síncrono do cache para evitar bloqueio da UI thread
+            scaleLut = _paletteEngine.GetCachedLut(paletteName)
+                       ?? _paletteEngine.GetCachedLut("Iron");
             copyOriginalScaleBar = false;
         }
 

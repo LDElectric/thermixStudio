@@ -284,6 +284,12 @@ public sealed partial class MainViewModel : ObservableObject
         _metadataPreservationService = metadataPreservationService;
         _serviceProvider = serviceProvider;
 
+        // ══════════════════════════════════════════════════════════════
+        // TESTE: Render limpo — sem overlay de câmera (logo, escala, spot)
+        // Para reativar o overlay, mude para false.
+        // ══════════════════════════════════════════════════════════════
+        SuppressOverlay = true;
+
         ConfigurePlot();
 
         LoadDataCommand = new AsyncRelayCommand(LoadDataAsync);
@@ -319,7 +325,8 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowBlendControls));
         OnPropertyChanged(nameof(ShowPipControls));
         OnPropertyChanged(nameof(ShowMsxControls));
-        UpdateDisplayImage();
+        // Usa debounce para evitar render síncrona bloqueante na UI thread
+        TriggerRenderDebounced(delayMs: 0);
         _ = PersistSelectedThermogramViewStateAsync();
     }
 
@@ -333,7 +340,7 @@ public sealed partial class MainViewModel : ObservableObject
     partial void OnAutoScaleEnabledChanged(bool value)
     {
         if (_loadingThermogram) return;
-        UpdateDisplayImage();
+        TriggerRenderDebounced(delayMs: 0);
         _ = PersistSelectedThermogramViewStateAsync();
     }
 
@@ -403,32 +410,45 @@ public sealed partial class MainViewModel : ObservableObject
 
         /// <summary>
         /// Agenda um re-render com debounce para evitar re-renderizações excessivas
-        /// durante arrasto de sliders. <paramref name="delayMs"/>=0 renderiza imediatamente
-        /// no próximo ciclo do dispatcher.
+        /// durante arrasto de sliders. <paramref name="delayMs"/>=0 renderiza no próximo
+        /// ciclo do dispatcher sem Delay.
         /// </summary>
         private void TriggerRenderDebounced(int delayMs = 70)
         {
             _renderDebounceCts?.Cancel();
             _renderDebounceCts = new CancellationTokenSource();
             var token = _renderDebounceCts.Token;
-            _ = Task.Run(async () =>
+
+            if (delayMs <= 0)
             {
-                try
-                {
-                    if (delayMs > 0)
-                        await Task.Delay(delayMs, token).ConfigureAwait(false);
-                    await System.Windows.Application.Current.Dispatcher
-                        .InvokeAsync(() =>
+                // Renderiza no próximo ciclo do dispatcher (sem Task.Run)
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(() =>
+                    {
+                        if (!token.IsCancellationRequested)
                         {
-                            if (!token.IsCancellationRequested)
-                            {
-                                UpdateDisplayImage();
-                                _ = PersistSelectedThermogramViewStateAsync();
-                            }
-                        });
-                }
-                catch (OperationCanceledException) { /* debounce cancelado, ignorar */ }
-            });
+                            UpdateDisplayImage();
+                        }
+                    }));
+                return;
+            }
+
+            // Para debounce, usa DispatcherTimer (mais leve que Task.Run)
+            var timer = new System.Windows.Threading.DispatcherTimer(
+                TimeSpan.FromMilliseconds(delayMs),
+                System.Windows.Threading.DispatcherPriority.Background,
+                (s, e) =>
+                {
+                    ((System.Windows.Threading.DispatcherTimer)s!).Stop();
+                    if (!token.IsCancellationRequested)
+                    {
+                        UpdateDisplayImage();
+                        _ = PersistSelectedThermogramViewStateAsync();
+                    }
+                },
+                System.Windows.Application.Current.Dispatcher);
+            timer.Start();
         }
 
     private static void LogToFile(string message)

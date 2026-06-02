@@ -1,5 +1,6 @@
 using System.Drawing;
 using ThermixStudio.Core;
+using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.Core.Services;
 
@@ -14,6 +15,9 @@ public interface IThermalViewPipeline
     /// <summary>Carrega LUT embarcada da câmera no <see cref="IThermalRenderEngine"/>.</summary>
     Task PrepareThermogramAsync(string imagePath, CancellationToken cancellationToken = default);
 
+    /// <summary>Pré-aquece o cache de LUTs (Iron + paletas comuns) em background para primeira renderização instantânea.</summary>
+    Task PreWarmPalettesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Modo de captura via EXIF (PiP, MSX, Visible, …).</summary>
     Task<ImageViewMode?> DetectCaptureModeFromMetadataAsync(string imagePath, CancellationToken cancellationToken = default);
 
@@ -24,11 +28,19 @@ public interface IThermalViewPipeline
     ThermalRenderResult RenderRadiometric(ThermalImageData image, ThermalRenderParameters parameters);
 
     /// <summary>Renderização radiométrica com LUT nomeada (ThermalPaletteEngine).</summary>
+    [Obsolete("Use RenderRadiometricWithProfileAsync com RenderProfile.FromMetadata()")]
     Task<byte[]> RenderRadiometricWithPaletteAsync(
         ThermalImageData image,
         string paletteName,
         double? levelMinC,
         double? levelMaxC,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Renderização radiométrica com perfil por imagem (ThermalPaletteEngine).</summary>
+    Task<byte[]> RenderRadiometricWithProfileAsync(
+        ThermalImageData image,
+        string paletteName,
+        RenderProfile profile,
         CancellationToken cancellationToken = default);
 
     /// <summary>Remapeia frame capturado entre paletas (ProcessSmartHD / ThermalCS).</summary>

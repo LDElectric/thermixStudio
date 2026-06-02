@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using ThermixStudio.Core;
+using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.App.ViewModels;
 
@@ -112,8 +113,9 @@ public sealed partial class MainViewModel
             try
             {
                 var paletteName = palette == ThermalPalette.Original ? "Iron" : palette.ToString();
-                thermalPixels = _viewPipeline.RenderRadiometricWithPaletteAsync(
-                    image, paletteName, LevelMinC, LevelMaxC).GetAwaiter().GetResult();
+                var profile = RenderProfile.FromMetadata(image.Metadata, LevelMinC, LevelMaxC);
+                thermalPixels = _viewPipeline.RenderRadiometricWithProfileAsync(
+                    image, paletteName, profile).GetAwaiter().GetResult();
             }
             catch
             {

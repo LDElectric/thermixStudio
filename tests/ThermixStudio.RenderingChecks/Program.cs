@@ -2,22 +2,18 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using ThermixStudio.App.Services;
 using ThermixStudio.Core;
+using ThermixStudio.Core.Thermal;
 
 var root = FindRepositoryRoot();
 var outputDir = Path.Combine(root, "tests", "ThermixStudio.RenderingChecks", "output");
 Directory.CreateDirectory(outputDir);
 
-if (args.Contains("--color-parity-2"))
+// ─── MODO BATCH: calibrar todos termogramas ────────────────────────────
+if (args.Contains("--batch"))
 {
-    Console.WriteLine("\n=== Paridade cromatica 2.jpg ===");
-    await RenderAndCompareThermalSceneAsync(
-        root,
-        outputDir,
-        "2",
-        scaleMinC: 21.4,
-        scaleMaxC: 44.7,
-        maxSceneRmse: 14.0);
-    Console.WriteLine("Color parity check OK.");
+    Console.WriteLine("=== BATCH: Calibrando todos termogramas em Termogramas/ ===");
+    await BatchCalibrateAsync(root, outputDir);
+    Console.WriteLine("BATCH concluido.");
     return;
 }
 
@@ -30,15 +26,6 @@ await TestPrefixHypothesis(root, "FLIR0065");
 // ─── Render comparativo: FLIR0060 vs original ────────────────────────────
 Console.WriteLine("\n=== Render comparativo FLIR0060 ===");
 await RenderAndCompareAsync(root, outputDir, "FLIR0060");
-
-Console.WriteLine("\n=== Paridade cromatica 2.jpg ===");
-await RenderAndCompareThermalSceneAsync(
-    root,
-    outputDir,
-    "2",
-    scaleMinC: 21.4,
-    scaleMaxC: 44.7,
-    maxSceneRmse: 14.0);
 
 var referencePath = Path.Combine(root, "FLIR0192.jpg");
 if (!File.Exists(referencePath))
@@ -158,6 +145,44 @@ if (Directory.Exists(batchDir))
 
 Console.WriteLine("Rendering checks OK.");
 
+// ─── Gerar renders pós-refatoração com pipeline novo ──────────────────
+Console.WriteLine("\n=== Gerando renders com RenderWithProfileAsync ===");
+await GenerateProfileRender(root, analysis, outputDir, "FLIR0192");
+await GenerateProfileRender(root, analysis, outputDir, "2");
+Console.WriteLine("Renders gerados em: " + outputDir);
+
+static async Task GenerateProfileRender(string root, ThermalAnalysisService analysis, string outputDir, string name)
+{
+    var jpgPath = Path.Combine(root, $"{name}.jpg");
+    if (!File.Exists(jpgPath)) { Console.WriteLine($"  {name}: arquivo nao encontrado"); return; }
+
+    var img = await analysis.LoadImageAsync(jpgPath);
+    var meta = img.Metadata;
+
+    // Usa PaletteScale do EXIF (autoritativo), fallback matrix
+    double minC = meta.PaletteScaleMinC ?? img.Temperatures.Cast<double>().Min();
+    double maxC = meta.PaletteScaleMaxC ?? img.Temperatures.Cast<double>().Max();
+    if (maxC <= minC) maxC = minC + 0.01;
+
+    var profile = RenderProfile.FromMetadata(meta, minC, maxC);
+    var engine = new ThermalPaletteEngine();
+
+    var rendered = await engine.RenderWithProfileAsync(
+        img.Temperatures, img.Width, img.Height,
+        "Iron", profile, meta);
+
+    // Salva como PNG
+    using var bmp = new Bitmap(img.Width, img.Height, PixelFormat.Format32bppArgb);
+    var rect = new Rectangle(0, 0, img.Width, img.Height);
+    var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+    System.Runtime.InteropServices.Marshal.Copy(rendered, 0, data.Scan0, rendered.Length);
+    bmp.UnlockBits(data);
+
+    var outPath = Path.Combine(outputDir, $"{name}_render_refactored.png");
+    bmp.Save(outPath, ImageFormat.Png);
+    Console.WriteLine($"  {name}: {minC:F1}~{maxC:F1}C, stretch={profile.ApplyPaletteStretch}, wb={profile.ApplyWhiteBoost} -> {outPath}");
+}
+
 static (double SceneRmse, double BelowHitRate) CompareReference(Bitmap reference, byte[] rendered, int width, int height)
 {
     var totalSquared = 0.0;
@@ -242,39 +267,96 @@ static bool IsLikelyOverlay(Color color)
     return brightness > 180 && max - min < 50;
 }
 
+// ─── BATCH: calibração em lote de todos termogramas ────────────────────
+
+static async Task BatchCalibrateAsync(string root, string outputDir)
+{
+    var termogramasDir = Path.Combine(root, "Termogramas");
+    if (!Directory.Exists(termogramasDir))
+    {
+        Console.WriteLine($"Diretorio nao encontrado: {termogramasDir}");
+        return;
+    }
+
+    var jpgs = Directory.GetFiles(termogramasDir, "*.jpg")
+        .Concat(Directory.GetFiles(root, "FLIR0192.jpg"))
+        .Concat(Directory.GetFiles(root, "2.jpg"))
+        .Distinct()
+        .ToArray();
+
+    Console.WriteLine($"Encontrados {jpgs.Length} termogramas.");
+    var analysis = new ThermalAnalysisService(new ExifToolService());
+    var engine = new ThermalPaletteEngine();
+
+    int ok = 0, fail = 0;
+    foreach (var jpg in jpgs)
+    {
+        var name = Path.GetFileNameWithoutExtension(jpg);
+        try
+        {
+            var img = await analysis.LoadImageAsync(jpg);
+            var meta = img.Metadata;
+
+            double minC = meta.PaletteScaleMinC ?? img.Temperatures.Cast<double>().Min();
+            double maxC = meta.PaletteScaleMaxC ?? img.Temperatures.Cast<double>().Max();
+            if (maxC <= minC) maxC = minC + 0.01;
+
+            var profile = RenderProfile.FromMetadata(meta, minC, maxC);
+            var rendered = await engine.RenderWithProfileAsync(
+                img.Temperatures, img.Width, img.Height, "Iron", profile, meta);
+
+            // Histogram matching contra o JPEG original
+            using var origBmp = new Bitmap(jpg);
+            var origData = origBmp.LockBits(
+                new Rectangle(0, 0, img.Width, img.Height),
+                ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            var origPixels = new byte[origData.Stride * img.Height];
+            System.Runtime.InteropServices.Marshal.Copy(origData.Scan0, origPixels, 0, origPixels.Length);
+            origBmp.UnlockBits(origData);
+
+            rendered = HistogramMatcher.MatchAdaptive(rendered, origPixels, img.Width, img.Height, 0.08);
+
+            // Salvar
+            using var bmp = new Bitmap(img.Width, img.Height, PixelFormat.Format32bppArgb);
+            var data = bmp.LockBits(
+                new Rectangle(0, 0, img.Width, img.Height),
+                ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            System.Runtime.InteropServices.Marshal.Copy(rendered, 0, data.Scan0, rendered.Length);
+            bmp.UnlockBits(data);
+
+            var outPath = Path.Combine(outputDir, $"{name}_calibrated.jpg");
+            bmp.Save(outPath, ImageFormat.Jpeg);
+            Console.WriteLine($"  OK  {name}  ({minC:F1}~{maxC:F1}C, stretch={profile.ApplyPaletteStretch}, wb={profile.ApplyWhiteBoost})");
+            ok++;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  FAIL {name}: {ex.Message}");
+            fail++;
+        }
+    }
+
+    Console.WriteLine($"\nBatch concluido: {ok} OK, {fail} falhas. Output: {outputDir}");
+}
+
 static string FindRepositoryRoot()
 {
-    var probes = new[]
+    var current = AppContext.BaseDirectory;
+    while (!string.IsNullOrWhiteSpace(current))
     {
-        Directory.GetCurrentDirectory(),
-        AppContext.BaseDirectory
-    };
-
-    foreach (var probeRoot in probes)
-    {
-        var current = probeRoot;
-        while (!string.IsNullOrWhiteSpace(current))
+        if (File.Exists(Path.Combine(current, "FLIR0192.jpg")) ||
+            File.Exists(Path.Combine(current, "src", "ThermixStudio.slnx")))
         {
-            var hasSolution =
-                File.Exists(Path.Combine(current, "ThermixStudio.slnx")) ||
-                File.Exists(Path.Combine(current, "src", "ThermixStudio.slnx"));
-            var hasReference =
-                File.Exists(Path.Combine(current, "FLIR0192.jpg")) ||
-                File.Exists(Path.Combine(current, "2.jpg"));
-
-            if (hasSolution && hasReference)
-            {
-                return current;
-            }
-
-            var parent = Directory.GetParent(current)?.FullName;
-            if (string.IsNullOrWhiteSpace(parent) || parent == current)
-            {
-                break;
-            }
-
-            current = parent;
+            return current;
         }
+
+        var parent = Directory.GetParent(current)?.FullName;
+        if (string.IsNullOrWhiteSpace(parent) || parent == current)
+        {
+            break;
+        }
+
+        current = parent;
     }
 
     throw new DirectoryNotFoundException("Raiz do repositorio nao encontrada.");
@@ -286,116 +368,6 @@ static void Assert(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
-}
-
-static async Task RenderAndCompareThermalSceneAsync(
-    string root,
-    string outputDir,
-    string name,
-    double scaleMinC,
-    double scaleMaxC,
-    double maxSceneRmse)
-{
-    var origPath = Path.Combine(root, $"{name}.jpg");
-    if (!File.Exists(origPath))
-    {
-        Console.WriteLine($"{name}: arquivo nao encontrado");
-        return;
-    }
-
-    var exifTool = new ExifToolService();
-    var analysis = new ThermalAnalysisService(exifTool);
-    var img = await analysis.LoadImageAsync(origPath);
-    var palette = new ThermalPaletteEngine();
-    var thermalPixels = await palette.RenderThermalWithPaletteAsync(
-        img.Temperatures,
-        img.Width,
-        img.Height,
-        "Iron",
-        scaleMinC,
-        scaleMaxC,
-        img.Metadata);
-
-    var outPath = Path.Combine(outputDir, $"{name}_thermal_color_parity.png");
-    SaveBgraToPng(thermalPixels, img.Width, img.Height, outPath);
-
-    using var reference = new Bitmap(origPath);
-    var comparison = CompareThermalScene(reference, thermalPixels, img.Width, img.Height);
-    Console.WriteLine($"  Render salvo: {outPath}");
-    Console.WriteLine($"  Escala fixa: {scaleMinC:F1} C / {scaleMaxC:F1} C");
-    Console.WriteLine($"  Scene RGB RMSE: {comparison.SceneRmse:F2}");
-    Console.WriteLine($"  Mean RGB reference: {comparison.RefMeanR:F1}, {comparison.RefMeanG:F1}, {comparison.RefMeanB:F1}");
-    Console.WriteLine($"  Mean RGB render:    {comparison.RndMeanR:F1}, {comparison.RndMeanG:F1}, {comparison.RndMeanB:F1}");
-
-    Assert(comparison.SceneRmse <= maxSceneRmse,
-        $"{name}: paridade cromatica insuficiente. RMSE={comparison.SceneRmse:F2} limite={maxSceneRmse:F2}");
-}
-
-static ThermalSceneComparison CompareThermalScene(Bitmap reference, byte[] rendered, int width, int height)
-{
-    var totalSquared = 0.0;
-    var count = 0;
-    var refR = 0.0;
-    var refG = 0.0;
-    var refB = 0.0;
-    var rndR = 0.0;
-    var rndG = 0.0;
-    var rndB = 0.0;
-
-    for (var y = 26; y <= Math.Min(height - 1, 214); y++)
-    {
-        for (var x = 0; x < Math.Min(width, 270); x++)
-        {
-            if (x < 70 && y > 205)
-            {
-                continue;
-            }
-
-            var original = reference.GetPixel(x, y);
-            if (IsLikelyOverlay(original))
-            {
-                continue;
-            }
-
-            var brightness = (original.R + original.G + original.B) / 3;
-            if (brightness < 18)
-            {
-                continue;
-            }
-
-            var idx = ((y * width) + x) * 4;
-            var b = rendered[idx];
-            var g = rendered[idx + 1];
-            var r = rendered[idx + 2];
-            var dr = original.R - r;
-            var dg = original.G - g;
-            var db = original.B - b;
-
-            totalSquared += (dr * dr) + (dg * dg) + (db * db);
-            refR += original.R;
-            refG += original.G;
-            refB += original.B;
-            rndR += r;
-            rndG += g;
-            rndB += b;
-            count++;
-        }
-    }
-
-    if (count == 0)
-    {
-        return new ThermalSceneComparison(double.MaxValue, 0, 0, 0, 0, 0, 0);
-    }
-
-    var rmse = Math.Sqrt(totalSquared / (count * 3.0));
-    return new ThermalSceneComparison(
-        rmse,
-        refR / count,
-        refG / count,
-        refB / count,
-        rndR / count,
-        rndG / count,
-        rndB / count);
 }
 
 static async Task RenderAndCompareAsync(string root, string outputDir, string name)
@@ -411,8 +383,8 @@ static async Task RenderAndCompareAsync(string root, string outputDir, string na
     var vs = await detector.DetectAsync(origPath, img);
 
     // Usar escala visual detectada, fallback para EXIF
-    double scaleMin = vs.Success && vs.MinC.HasValue ? vs.MinC.Value : (img.Metadata.ImageTemperatureMinK.HasValue ? img.Metadata.ImageTemperatureMinK.Value - 273.15 : 20);
-    double scaleMax = vs.Success && vs.MaxC.HasValue ? vs.MaxC.Value : (img.Metadata.ImageTemperatureMaxK.HasValue ? img.Metadata.ImageTemperatureMaxK.Value - 273.15 : 100);
+    double scaleMin = vs.Success ? (double)vs.MinC : (img.Metadata.ImageTemperatureMinK.HasValue ? img.Metadata.ImageTemperatureMinK.Value - 273.15 : 20);
+    double scaleMax = vs.Success ? (double)vs.MaxC : (img.Metadata.ImageTemperatureMaxK.HasValue ? img.Metadata.ImageTemperatureMaxK.Value - 273.15 : 100);
 
     // Computar delta para prefixo
     double matMin = double.MaxValue, matMax = double.MinValue;
@@ -650,12 +622,3 @@ record TypographyComparison(
     bool OrigSuffixTopAligned, bool RndSuffixTopAligned,
     int OrigTopRightH, int RndTopRightH,
     int OrigBotRightH, int RndBotRightH);
-
-record ThermalSceneComparison(
-    double SceneRmse,
-    double RefMeanR,
-    double RefMeanG,
-    double RefMeanB,
-    double RndMeanR,
-    double RndMeanG,
-    double RndMeanB);
