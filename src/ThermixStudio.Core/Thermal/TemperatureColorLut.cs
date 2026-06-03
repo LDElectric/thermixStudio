@@ -2,9 +2,8 @@ namespace ThermixStudio.Core.Thermal;
 
 /// <summary>
 /// LUT universal: mapeia TEMPERATURA → COR diretamente.
-/// Construída alinhando a matriz de temperaturas com o JPEG original da câmera.
-/// Funciona para qualquer termograma, qualquer cena, qualquer paleta —
-/// porque a temperatura é um dado físico, não uma cor intermediária.
+/// Construída alinhando a matriz de temperaturas com o JPEG original.
+/// 256 bins — densidade ideal para distribuições térmicas.
 /// </summary>
 public sealed class TemperatureColorLut
 {
@@ -28,26 +27,19 @@ public sealed class TemperatureColorLut
     /// Constrói a LUT alinhando cada pixel da matriz de temperaturas
     /// com o pixel correspondente do JPEG original da câmera.
     /// </summary>
-    /// <param name="temperatures">Matriz de temperaturas em Celsius</param>
-    /// <param name="originalBgra">Pixels BGRA do JPEG original</param>
-    /// <param name="width">Largura</param>
-    /// <param name="height">Altura</param>
-    /// <param name="minC">Temperatura mínima da escala</param>
-    /// <param name="maxC">Temperatura máxima da escala</param>
-    /// <param name="numBins">Número de bins de temperatura (padrão: 256)</param>
-    /// <param name="cropMargin">Margem a excluir (overlay)</param>
     public static TemperatureColorLut Build(
         double[,] temperatures, byte[] originalBgra,
         int width, int height,
         double minC, double maxC,
-        int numBins = 256, double cropMargin = 0.08)
+        int numBins = 512, double cropMargin = 0.08, int smoothRadius = 2)
     {
-        var lut = new TemperatureColorLut(numBins, minC, maxC);
-
         int x0 = (int)(width * cropMargin);
         int x1 = (int)(width * (1.0 - cropMargin));
         int y0 = (int)(height * cropMargin);
         int y1 = (int)(height * (1.0 - cropMargin));
+
+        if (maxC <= minC) maxC = minC + 0.01;
+        var lut = new TemperatureColorLut(numBins, minC, maxC);
 
         // Acumuladores por bin: soma R, G, B e contagem
         var sumR = new long[numBins];
@@ -61,8 +53,6 @@ public sealed class TemperatureColorLut
             {
                 double t = temperatures[y, x];
                 if (double.IsNaN(t) || double.IsInfinity(t)) continue;
-
-                // Mapear temperatura para bin
                 int bin = (int)((t - minC) / lut._range * (numBins - 1));
                 if (bin < 0 || bin >= numBins) continue;
 
@@ -90,19 +80,36 @@ public sealed class TemperatureColorLut
         FillEmptyBins(lut._lutG, numBins);
         FillEmptyBins(lut._lutB, numBins);
 
-        // Suavizar (média móvel de 3)
-        SmoothLut(lut._lutR, numBins);
-        SmoothLut(lut._lutG, numBins);
-        SmoothLut(lut._lutB, numBins);
+        // Suavizar (média ponderada, raio configurável)
+        SmoothLut(lut._lutR, numBins, smoothRadius);
+        SmoothLut(lut._lutG, numBins, smoothRadius);
+        SmoothLut(lut._lutB, numBins, smoothRadius);
+
+        // Garantir que extremos são preto (bin 0) e branco (bin 255)
+        ForceExtremeColors(lut._lutR, lut._lutG, lut._lutB, numBins);
 
         lut._isValid = true;
         return lut;
     }
 
-    /// <summary>Aplica a LUT nos pixels BGRA usando interpolação linear entre bins.</summary>
-    public void Apply(double[,] temperatures, byte[] bgraPixels, int width, int height)
+    private static void ForceExtremeColors(byte[] r, byte[] g, byte[] b, int numBins)
+    {
+        // Bin 0 → preto (RGB 0,0,0)
+        r[0] = g[0] = b[0] = 0;
+        // Último bin → branco (RGB 255,255,255)
+        r[numBins - 1] = g[numBins - 1] = b[numBins - 1] = 255;
+    }
+
+    /// <summary>
+    /// Aplica a LUT. displayMin/displayMax definem a faixa visível (sliders).
+    /// Abaixo de displayMin → 1ª cor da LUT. Acima de displayMax → última cor.
+    /// </summary>
+    public void Apply(double[,] temperatures, byte[] bgraPixels, int width, int height,
+        double displayMin, double displayMax)
     {
         if (!_isValid) return;
+        if (displayMax <= displayMin) displayMax = displayMin + 0.01;
+        double displayRange = displayMax - displayMin;
 
         for (int y = 0; y < height; y++)
         {
@@ -111,10 +118,8 @@ public sealed class TemperatureColorLut
                 double t = temperatures[y, x];
                 int dest = (y * width + x) * 4;
 
-                // Temperaturas fora da escala: manter cor original do render
-                if (t < _minC || t > _maxC) continue;
-
-                double pos = (t - _minC) / _range * (_numBins - 1);
+                // Normalizar dentro da faixa visível (sliders)
+                double pos = Math.Clamp((t - displayMin) / displayRange, 0.0, 1.0) * (_numBins - 1);
                 int lo = Math.Clamp((int)pos, 0, _numBins - 1);
                 int hi = Math.Clamp(lo + 1, 0, _numBins - 1);
                 double frac = pos - lo;
@@ -157,15 +162,22 @@ public sealed class TemperatureColorLut
         }
     }
 
-    private static void SmoothLut(byte[] lut, int numBins)
+    private static void SmoothLut(byte[] lut, int numBins, int radius = 2)
     {
         var smoothed = new byte[numBins];
         Array.Copy(lut, smoothed, numBins);
 
-        for (int b = 1; b < numBins - 1; b++)
+        for (int b = 0; b < numBins; b++)
         {
-            int sum = lut[b - 1] + lut[b] * 2 + lut[b + 1];
-            smoothed[b] = (byte)(sum / 4);
+            int sum = 0, w = 0;
+            for (int r = -radius; r <= radius; r++)
+            {
+                int idx = Math.Clamp(b + r, 0, numBins - 1);
+                int weight = radius + 1 - Math.Abs(r);
+                sum += lut[idx] * weight;
+                w += weight;
+            }
+            smoothed[b] = (byte)(sum / w);
         }
 
         Array.Copy(smoothed, lut, numBins);

@@ -33,6 +33,48 @@ public sealed partial class MainViewModel
     // ── LUT Temperatura→Cor — construída 1x, aplicada todo frame ──
     private TemperatureColorLut? _temperatureLut;
 
+    private static void FastPercentiles(double[,] temps, double lowPct, double highPct, out double low, out double high)
+    {
+        const int bins = 1000;
+        var hist = new int[bins];
+        double min = double.MaxValue, max = double.MinValue;
+        int w = temps.GetLength(1), h = temps.GetLength(0);
+        int validCount = 0;
+
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            double t = temps[y, x];
+            if (!double.IsFinite(t)) continue;
+            validCount++;
+            if (t < min) min = t;
+            if (t > max) max = t;
+        }
+
+        if (max <= min || validCount == 0) { low = min; high = min + 1; return; }
+        double range = max - min;
+
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            double t = temps[y, x];
+            if (!double.IsFinite(t)) continue;
+            int b = (int)((t - min) / range * (bins - 1));
+            if (b >= 0 && b < bins) hist[b]++;
+        }
+
+        int lowTarget = (int)(validCount * lowPct);
+        int highTarget = (int)(validCount * highPct);
+        int cum = 0, lowBin = 0, highBin = bins - 1;
+
+        for (int b = 0; b < bins; b++) { cum += hist[b]; if (cum >= lowTarget) { lowBin = b; break; } }
+        cum = 0;
+        for (int b = 0; b < bins; b++) { cum += hist[b]; if (cum >= highTarget) { highBin = b; break; } }
+
+        low = min + (lowBin + 0.5) / bins * range;
+        high = min + (highBin + 0.5) / bins * range;
+    }
+
     private void ClearPerThermogramCaches()
     {
         _cachedOriginalPath = null;
@@ -70,6 +112,16 @@ public sealed partial class MainViewModel
 
             LevelMinC = appliedMin;
             LevelMaxC = appliedMax;
+
+            // Se VisualScale OCR foi detectado, exibe nos sliders
+            if (_loadedImage.Metadata.VisualScaleMinC.HasValue &&
+                _loadedImage.Metadata.VisualScaleMaxC.HasValue)
+            {
+                appliedMin = _loadedImage.Metadata.VisualScaleMinC.Value;
+                appliedMax = _loadedImage.Metadata.VisualScaleMaxC.Value;
+                LevelMinC = appliedMin;
+                LevelMaxC = appliedMax;
+            }
         }
 
         byte[] thermalPixels = Array.Empty<byte>();
@@ -94,31 +146,34 @@ public sealed partial class MainViewModel
         var hasVisible = TryLoadVisibleBgraPixels(width, height, out var visiblePixels);
 
         // ══════════════════════════════════════════════════════════════
-        // TemperatureColorLut: mapeia TEMPERATURA → COR direto do original.
-        // Universal — funciona para qualquer cena, qualquer termograma.
-        // Construído 1x, aplicado instantaneamente todo frame.
+        // LUT no PaletteScale (EXIF). Sliders fora → Linear.
         // ══════════════════════════════════════════════════════════════
-        if (hasOriginal && originalPixels is not null &&
+        bool useLut = hasOriginal && originalPixels is not null &&
             ImageViewMode != ImageViewMode.Original &&
             ImageViewMode != ImageViewMode.Visible &&
-            _loadedImage?.Temperatures is not null)
+            _loadedImage?.Temperatures is not null;
+
+        if (useLut)
         {
             if (_temperatureLut == null)
             {
-                double buildMin = LevelMinC;
-                double buildMax = LevelMaxC;
-                if (buildMax <= buildMin) { buildMin = _loadedImage.Temperatures.Cast<double>().Min(); buildMax = _loadedImage.Temperatures.Cast<double>().Max(); }
+                // PaletteScale: mesmo range do Apply (sliders)
+                double buildMin = _loadedImage.Metadata.PaletteScaleMinC 
+                    ?? _loadedImage.Temperatures.Cast<double>().Min();
+                double buildMax = _loadedImage.Metadata.PaletteScaleMaxC
+                    ?? _loadedImage.Temperatures.Cast<double>().Max();
+                if (buildMax <= buildMin) buildMax = buildMin + 0.01;
 
                 _temperatureLut = TemperatureColorLut.Build(
                     _loadedImage.Temperatures, originalPixels, width, height,
-                    buildMin, buildMax, numBins: 256, cropMargin: 0.08);
-                Debug.WriteLine("[TEMP-LUT] Construida para esta imagem.");
+                    buildMin, buildMax, numBins: 256, cropMargin: 0.08, smoothRadius: 1);
+                Debug.WriteLine($"[TEMP-LUT] PaletteScale={buildMin:F1}~{buildMax:F1}");
             }
 
-            // Aplica LUT temperatura→cor (substitui thermalPixels)
             for (int i = 3; i < thermalPixels.Length; i += 4)
-                thermalPixels[i] = 255; // alpha
-            _temperatureLut.Apply(_loadedImage.Temperatures, thermalPixels, width, height);
+                thermalPixels[i] = 255;
+            _temperatureLut.Apply(_loadedImage.Temperatures, thermalPixels, width, height,
+                LevelMinC, LevelMaxC);
         }
 
         var spotTemperature = GetSpotTemperature(_loadedImage, hasOriginal ? originalPixels : null, displayScale);
@@ -607,19 +662,17 @@ public sealed partial class MainViewModel
 
     private static (double min, double max) GetPreferredThermalRange(ThermalImageData image)
     {
-        // ══════════════════════════════════════════════════════════════
-        // TESTE: VisualScale DESLIGADO — pula direto para PaletteScale.
-        // VisualScale é inferido (OCR) e pode corromper a normalização.
-        // ══════════════════════════════════════════════════════════════
-        // if (image.Metadata.VisualScaleMinC.HasValue && image.Metadata.VisualScaleMaxC.HasValue)
-        // {
-        //     var visualMin = image.Metadata.VisualScaleMinC.Value;
-        //     var visualMax = image.Metadata.VisualScaleMaxC.Value;
-        //     if (double.IsFinite(visualMin) && double.IsFinite(visualMax) && visualMax > visualMin)
-        //     {
-        //         return (visualMin, visualMax);
-        //     }
-        // }
+        // VisualScale: escala REAL queimada no JPEG (operador ajustou na câmera)
+        // Mais preciso que PaletteScale do EXIF
+        if (image.Metadata.VisualScaleMinC.HasValue && image.Metadata.VisualScaleMaxC.HasValue)
+        {
+            var visualMin = image.Metadata.VisualScaleMinC.Value;
+            var visualMax = image.Metadata.VisualScaleMaxC.Value;
+            if (double.IsFinite(visualMin) && double.IsFinite(visualMax) && visualMax > visualMin)
+            {
+                return (visualMin, visualMax);
+            }
+        }
 
         if (image.Metadata.PaletteScaleMinC.HasValue && image.Metadata.PaletteScaleMaxC.HasValue)
         {
