@@ -17,22 +17,19 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
     private readonly IThermalModeEngine _modeEngine;
     private readonly IThermalAnalysisService _analysisService;
     private readonly IThermalModeDetectionService _modeDetectionService;
-    private readonly IFlirCameraUiOverlay _cameraUiOverlay;
 
     public ThermalViewPipeline(
         IThermalRenderEngine renderEngine,
         IThermalPaletteEngine paletteEngine,
         IThermalModeEngine modeEngine,
         IThermalAnalysisService analysisService,
-        IThermalModeDetectionService modeDetectionService,
-        IFlirCameraUiOverlay cameraUiOverlay)
+        IThermalModeDetectionService modeDetectionService)
     {
         _renderEngine = renderEngine;
         _paletteEngine = paletteEngine;
         _modeEngine = modeEngine;
         _analysisService = analysisService;
         _modeDetectionService = modeDetectionService;
-        _cameraUiOverlay = cameraUiOverlay;
     }
 
     public async Task PrepareThermogramAsync(string imagePath, CancellationToken cancellationToken = default)
@@ -125,56 +122,8 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
 
     public bool ModeRequiresVisible(ImageViewMode mode) => _modeEngine.ModeRequiresVisible(mode);
 
-    public byte[] OverlayCameraUI(
-        byte[] finalPixels,
-        byte[] originalPixels,
-        int width,
-        int height,
-        ImageViewMode mode = ImageViewMode.Thermal,
-        string? paletteName = null,
-        double? scaleMinC = null,
-        double? scaleMaxC = null,
-        double? spotTemperatureC = null,
-        double? maxTemperatureC = null,
-        double? minTemperatureC = null,
-        bool? spotIsApproximate = null,
-        bool preferOriginalTemperatureText = false,
-        string? spotLabel = null,
-        double? spotNormX = null,
-        double? spotNormY = null)
-    {
-        ThermalPaletteLutData? scaleLut = null;
-        bool copyOriginalScaleBar = mode != ImageViewMode.Visible;
-
-        if (mode != ImageViewMode.Visible &&
-            !string.IsNullOrWhiteSpace(paletteName) &&
-            !paletteName.Equals("Original", StringComparison.OrdinalIgnoreCase))
-        {
-            // Usa lookup síncrono do cache para evitar bloqueio da UI thread
-            scaleLut = _paletteEngine.GetCachedLut(paletteName)
-                       ?? _paletteEngine.GetCachedLut("Iron");
-            copyOriginalScaleBar = false;
-        }
-
-        return _cameraUiOverlay.Overlay(
-            finalPixels,
-            originalPixels,
-            width,
-            height,
-            mode,
-            scaleLut,
-            copyOriginalScaleBar,
-            scaleMinC,
-            scaleMaxC,
-            spotTemperatureC,
-            maxTemperatureC,
-            minTemperatureC,
-            spotIsApproximate,
-            preferOriginalTemperatureText,
-            spotLabel,
-            spotNormX,
-            spotNormY);
-    }
+    public byte[] OverlayCameraUI(byte[] finalPixels, byte[] originalPixels, int width, int height, ImageViewMode mode = ImageViewMode.Thermal, string? paletteName = null, double? scaleMinC = null, double? scaleMaxC = null, double? spotTemperatureC = null, double? maxTemperatureC = null, double? minTemperatureC = null, bool? spotIsApproximate = null, bool preferOriginalTemperatureText = false, string? spotLabel = null, double? spotNormX = null, double? spotNormY = null)
+        => finalPixels;
 
     private static byte[] CopyBitmapToBgra(Bitmap bitmap)
     {

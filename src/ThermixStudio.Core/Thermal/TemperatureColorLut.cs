@@ -1,9 +1,11 @@
+using System.Diagnostics;
+
 namespace ThermixStudio.Core.Thermal;
 
 /// <summary>
-/// LUT universal: mapeia TEMPERATURA → COR diretamente.
-/// Construída alinhando a matriz de temperaturas com o JPEG original.
-/// 256 bins — densidade ideal para distribuições térmicas.
+/// LUT temperatura→cor: amostra cores REAIS do JPEG original da câmera,
+/// filtra overlay (preto/branco exato + crosshair), interpola bins vazios
+/// com vizinho mais próximo. Sem ForceExtremeColors — transições suaves.
 /// </summary>
 public sealed class TemperatureColorLut
 {
@@ -23,48 +25,55 @@ public sealed class TemperatureColorLut
         _lutB = new byte[numBins];
     }
 
-    /// <summary>
-    /// Constrói a LUT alinhando cada pixel da matriz de temperaturas
-    /// com o pixel correspondente do JPEG original da câmera.
-    /// </summary>
     public static TemperatureColorLut Build(
-        double[,] temperatures, byte[] originalBgra,
+        double[,] temperatures, byte[] jpegBgra,
         int width, int height,
         double minC, double maxC,
-        int numBins = 512, double cropMargin = 0.08, int smoothRadius = 2)
+        int numBins = 4096, double cropMargin = 0.10)
     {
         int x0 = (int)(width * cropMargin);
         int x1 = (int)(width * (1.0 - cropMargin));
         int y0 = (int)(height * cropMargin);
         int y1 = (int)(height * (1.0 - cropMargin));
+        int cx = width / 2, cy = height / 2;
 
         if (maxC <= minC) maxC = minC + 0.01;
         var lut = new TemperatureColorLut(numBins, minC, maxC);
 
-        // Acumuladores por bin: soma R, G, B e contagem
         var sumR = new long[numBins];
         var sumG = new long[numBins];
         var sumB = new long[numBins];
         var count = new int[numBins];
+        int skipped = 0;
 
         for (int y = y0; y < y1; y++)
         {
             for (int x = x0; x < x1; x++)
             {
                 double t = temperatures[y, x];
-                if (double.IsNaN(t) || double.IsInfinity(t)) continue;
+                if (!double.IsFinite(t)) continue;
                 int bin = (int)((t - minC) / lut._range * (numBins - 1));
                 if (bin < 0 || bin >= numBins) continue;
 
                 int idx = (y * width + x) * 4;
-                sumB[bin] += originalBgra[idx];
-                sumG[bin] += originalBgra[idx + 1];
-                sumR[bin] += originalBgra[idx + 2];
+                byte jr = jpegBgra[idx + 2], jg = jpegBgra[idx + 1], jb = jpegBgra[idx];
+
+                // Filtrar overlay: preto/branco EXATO + crosshair central
+                bool pureBlack = jr == 0 && jg == 0 && jb == 0;
+                bool pureWhite = jr == 255 && jg == 255 && jb == 255;
+                bool crosshair = Math.Abs(x - cx) <= 2 && Math.Abs(y - cy) <= 2;
+                if (pureBlack || pureWhite || crosshair) { skipped++; continue; }
+
+                sumR[bin] += jr;
+                sumG[bin] += jg;
+                sumB[bin] += jb;
                 count[bin]++;
             }
         }
 
-        // Calcular médias por bin
+        // Médias + hasData
+        var hasData = new bool[numBins];
+        int populated = 0, firstPop = -1, lastPop = -1;
         for (int b = 0; b < numBins; b++)
         {
             if (count[b] > 0)
@@ -72,38 +81,46 @@ public sealed class TemperatureColorLut
                 lut._lutR[b] = (byte)(sumR[b] / count[b]);
                 lut._lutG[b] = (byte)(sumG[b] / count[b]);
                 lut._lutB[b] = (byte)(sumB[b] / count[b]);
+                hasData[b] = true;
+                populated++;
+                if (firstPop < 0) firstPop = b;
+                lastPop = b;
             }
         }
 
-        // Interpolar bins vazios
-        FillEmptyBins(lut._lutR, numBins);
-        FillEmptyBins(lut._lutG, numBins);
-        FillEmptyBins(lut._lutB, numBins);
+        Debug.WriteLine($"[TEMP-LUT] bins={numBins} range={minC:F2}~{maxC:F2} populated={populated}/{numBins} ({100.0*populated/numBins:F1}%) skippedOverlay={skipped}");
+        if (firstPop >= 0)
+            Debug.WriteLine($"[TEMP-LUT] firstPop@={minC + firstPop*lut._range/numBins:F2}°C lastPop@={minC + lastPop*lut._range/numBins:F2}°C");
 
-        // Suavizar (média ponderada, raio configurável)
-        SmoothLut(lut._lutR, numBins, smoothRadius);
-        SmoothLut(lut._lutG, numBins, smoothRadius);
-        SmoothLut(lut._lutB, numBins, smoothRadius);
+        // Vizinho mais próximo (não interpolação linear — evita cores falsas)
+        FillEmptyBinsNearest(lut._lutR, numBins, hasData);
+        FillEmptyBinsNearest(lut._lutG, numBins, hasData);
+        FillEmptyBinsNearest(lut._lutB, numBins, hasData);
 
-        // Garantir que extremos são preto (bin 0) e branco (bin 255)
-        ForceExtremeColors(lut._lutR, lut._lutG, lut._lutB, numBins);
+        // SEM ForceExtremeColors — transições suaves nos limiares
 
         lut._isValid = true;
         return lut;
     }
 
-    private static void ForceExtremeColors(byte[] r, byte[] g, byte[] b, int numBins)
+    private static void FillEmptyBinsNearest(byte[] lut, int numBins, bool[] hasData)
     {
-        // Bin 0 → preto (RGB 0,0,0)
-        r[0] = g[0] = b[0] = 0;
-        // Último bin → branco (RGB 255,255,255)
-        r[numBins - 1] = g[numBins - 1] = b[numBins - 1] = 255;
+        for (int b = 0; b < numBins; b++)
+        {
+            if (hasData[b]) continue;
+            int left = b - 1;
+            while (left >= 0 && !hasData[left]) left--;
+            int right = b + 1;
+            while (right < numBins && !hasData[right]) right++;
+            if (left >= 0 && right < numBins)
+                lut[b] = (b - left) <= (right - b) ? lut[left] : lut[right];
+            else if (left >= 0)
+                lut[b] = lut[left];
+            else if (right < numBins)
+                lut[b] = lut[right];
+        }
     }
 
-    /// <summary>
-    /// Aplica a LUT. displayMin/displayMax definem a faixa visível (sliders).
-    /// Abaixo de displayMin → 1ª cor da LUT. Acima de displayMax → última cor.
-    /// </summary>
     public void Apply(double[,] temperatures, byte[] bgraPixels, int width, int height,
         double displayMin, double displayMax)
     {
@@ -117,8 +134,9 @@ public sealed class TemperatureColorLut
             {
                 double t = temperatures[y, x];
                 int dest = (y * width + x) * 4;
+                if (!double.IsFinite(t)) continue;
+                if (t < -50.0) continue;
 
-                // Normalizar dentro da faixa visível (sliders)
                 double pos = Math.Clamp((t - displayMin) / displayRange, 0.0, 1.0) * (_numBins - 1);
                 int lo = Math.Clamp((int)pos, 0, _numBins - 1);
                 int hi = Math.Clamp(lo + 1, 0, _numBins - 1);
@@ -129,58 +147,6 @@ public sealed class TemperatureColorLut
                 bgraPixels[dest + 2] = LerpByte(_lutR[lo], _lutR[hi], frac);
             }
         }
-    }
-
-    private static void FillEmptyBins(byte[] lut, int numBins)
-    {
-        // Preencher bins vazios com interpolação linear entre vizinhos
-        for (int b = 0; b < numBins; b++)
-        {
-            if (lut[b] != 0) continue;
-
-            // Procurar vizinho à esquerda
-            int left = b - 1;
-            while (left >= 0 && lut[left] == 0) left--;
-
-            // Procurar vizinho à direita
-            int right = b + 1;
-            while (right < numBins && lut[right] == 0) right++;
-
-            if (left >= 0 && right < numBins)
-            {
-                double t = (double)(b - left) / (right - left);
-                lut[b] = (byte)(lut[left] + (lut[right] - lut[left]) * t);
-            }
-            else if (left >= 0)
-            {
-                lut[b] = lut[left];
-            }
-            else if (right < numBins)
-            {
-                lut[b] = lut[right];
-            }
-        }
-    }
-
-    private static void SmoothLut(byte[] lut, int numBins, int radius = 2)
-    {
-        var smoothed = new byte[numBins];
-        Array.Copy(lut, smoothed, numBins);
-
-        for (int b = 0; b < numBins; b++)
-        {
-            int sum = 0, w = 0;
-            for (int r = -radius; r <= radius; r++)
-            {
-                int idx = Math.Clamp(b + r, 0, numBins - 1);
-                int weight = radius + 1 - Math.Abs(r);
-                sum += lut[idx] * weight;
-                w += weight;
-            }
-            smoothed[b] = (byte)(sum / w);
-        }
-
-        Array.Copy(smoothed, lut, numBins);
     }
 
     private static byte LerpByte(byte a, byte b, double t)

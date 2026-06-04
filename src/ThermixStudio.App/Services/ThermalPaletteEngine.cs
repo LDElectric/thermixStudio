@@ -216,7 +216,7 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         // Normalização: usar o range REAL dos sinais da cena (não o derivado do Planck),
         // para evitar distorção na distribuição das cores.
         var pixels = new byte[width * height * 4];
-        var useLimitColors = FlirColorUtils.UsesFlirLimitColors(metadata);
+        var useLimitColors = false; // Below/Above/Under/Over são alarmes, NÃO escala visível
         var underflowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteUnderflowColorYCrCb, fallbackY: 41);
         var overflowColor = FlirColorUtils.ResolveYCrCbLimitColor(metadata?.PaletteOverflowColorYCrCb, fallbackY: 67);
 

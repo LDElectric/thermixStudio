@@ -39,7 +39,7 @@ O Thermix Studio é uma aplicação desktop para análise de imagens termográfi
 | `ThermalViewPipeline` | — | Orquestra os três motores (detecção + modulação na UI) |
 | `ExifToolService` | — | Metadados FLIR via `exiftool.exe` (binário, não Python) |
 
-Extração da foto visível FLIR: C# nativo (`ThermalAnalysisService`) — o script `extrair_imagens_flir.py` na raiz é legado e **não é chamado** pelo app.
+Extração da foto visível FLIR: 100% C# nativo (`FlirFffParser` + `ExifToolService`) — cache em `%LocalAppData%\ThermixStudio\visible-cache\`.
 
 ## Estrutura do Projeto
 

@@ -116,16 +116,16 @@ public sealed class RenderProfile
             LevelMinC = minC,
             LevelMaxC = maxC,
             ApplyPlanckTransform = hasPlanck,
-            ApplyPaletteStretch = false,     // TESTE: desligado
-            StretchBlend = 0.0,              // TESTE: zerado
-            ApplyWhiteBoost = false,          // TESTE: desligado
+            ApplyPaletteStretch = stretchRaw > 0,
+            StretchBlend = stretchBlend,
+            ApplyWhiteBoost = paletteMethod == 0,
             WhiteBoostThreshold = 0.94,
-            WhiteBoostIntensity = 0.0,
-            UseLimitColors = FlirColorUtils.UsesFlirLimitColors(m),
+            WhiteBoostIntensity = 0.015,
+            UseLimitColors = false,  // Escala visível sempre clamp aos extremos da paleta
             UnderflowColor = underflow,
             OverflowColor = overflow,
-            BelowColor = below,
-            AboveColor = above,
+            BelowColor = null,    // Abaixo/Above são alarmes, NÃO escala visível
+            AboveColor = null,
             PaletteScaleMinC = m.PaletteScaleMinC,  // Threshold para Priority 2 below
             PaletteScaleMaxC = m.PaletteScaleMaxC,  // Threshold para Priority 2 above
             SensorMinC = m.CameraTemperatureMinClip,

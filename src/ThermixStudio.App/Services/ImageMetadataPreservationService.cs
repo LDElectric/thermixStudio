@@ -64,4 +64,19 @@ public sealed class ImageMetadataPreservationService : IImageMetadataPreservatio
             return false;
         }
     }
+
+    public async Task<bool> CreateJpegWithFullMetadataAsync(
+        string originalImagePath,
+        string renderPngPath,
+        string outputJpgPath,
+        CancellationToken cancellationToken = default)
+    {
+        // Stub: delega para CopyOriginalMetadataAsync
+        if (!File.Exists(renderPngPath) || !File.Exists(originalImagePath))
+            return false;
+
+        // Copia o PNG renderizado como base e aplica metadados do original
+        File.Copy(renderPngPath, outputJpgPath, overwrite: true);
+        return await CopyOriginalMetadataAsync(originalImagePath, outputJpgPath, cancellationToken);
+    }
 }

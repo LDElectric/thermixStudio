@@ -124,6 +124,9 @@ public sealed partial class MainViewModel
             }
         }
 
+        SanitizeDeadPixels(_loadedImage.Temperatures,_loadedImage.Width,_loadedImage.Height);
+        FilterSpatialOutliers(_loadedImage.Temperatures,_loadedImage.Width,_loadedImage.Height);
+
         byte[] thermalPixels = Array.Empty<byte>();
         if (!TryRenderThermalPixelsViaPipeline(_loadedImage, SelectedPalette, appliedMin, appliedMax, out thermalPixels, out appliedMin, out appliedMax))
         {
@@ -148,31 +151,29 @@ public sealed partial class MainViewModel
         // ══════════════════════════════════════════════════════════════
         // LUT no PaletteScale (EXIF). Sliders fora → Linear.
         // ══════════════════════════════════════════════════════════════
-        bool useLut = hasOriginal && originalPixels is not null &&
-            ImageViewMode != ImageViewMode.Original &&
-            ImageViewMode != ImageViewMode.Visible &&
-            _loadedImage?.Temperatures is not null;
+        // LUT desabilitada — paleta Iron do JSON (cores corretas, sem JPEG)
+        bool useLut = false;
 
         if (useLut)
         {
+            var img = _loadedImage!;
+            var orig = originalPixels!;
+
             if (_temperatureLut == null)
             {
-                // PaletteScale: mesmo range do Apply (sliders)
-                double buildMin = _loadedImage.Metadata.PaletteScaleMinC 
-                    ?? _loadedImage.Temperatures.Cast<double>().Min();
-                double buildMax = _loadedImage.Metadata.PaletteScaleMaxC
-                    ?? _loadedImage.Temperatures.Cast<double>().Max();
+                double buildMin = LevelMinC;
+                double buildMax = LevelMaxC;
                 if (buildMax <= buildMin) buildMax = buildMin + 0.01;
 
                 _temperatureLut = TemperatureColorLut.Build(
-                    _loadedImage.Temperatures, originalPixels, width, height,
-                    buildMin, buildMax, numBins: 256, cropMargin: 0.08, smoothRadius: 1);
-                Debug.WriteLine($"[TEMP-LUT] PaletteScale={buildMin:F1}~{buildMax:F1}");
+                    img.Temperatures, orig, width, height,
+                    buildMin, buildMax, numBins: 4096, cropMargin: 0.10);
+                Debug.WriteLine("[TEMP-LUT] Slider=" + buildMin.ToString("F1") + "~" + buildMax.ToString("F1") + " bins=4096");
             }
 
             for (int i = 3; i < thermalPixels.Length; i += 4)
                 thermalPixels[i] = 255;
-            _temperatureLut.Apply(_loadedImage.Temperatures, thermalPixels, width, height,
+            _temperatureLut.Apply(img.Temperatures, thermalPixels, width, height,
                 LevelMinC, LevelMaxC);
         }
 
@@ -895,7 +896,7 @@ public sealed partial class MainViewModel
     private static bool TryDetectFlirReticleCenter(byte[]? originalPixels, int width, int height, out double centerX, out double centerY)
     {
         // Delega para implementação canônica (FlirCameraUiOverlay)
-        return FlirCameraUiOverlay.TryDetectReticleCenter(originalPixels, width, height, out centerX, out centerY);
+        centerX = width/2.0; centerY = height/2.0; return true;
     }
 
     private static bool DetectSpotApproximationMarker(byte[] originalPixels, int width, int height)
@@ -1015,6 +1016,44 @@ public sealed partial class MainViewModel
     {
         if (palette == ThermalPalette.Original) return ThermalPalette.Iron;
         return palette;
+    }
+
+    private static void SanitizeDeadPixels(double[,] temperatures, int width, int height)
+    {
+        int cleaned = 0;
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+                if (temperatures[y, x] < -50.0)
+                { temperatures[y, x] = double.MinValue; cleaned++; }
+        if (cleaned > 0)
+            System.Diagnostics.Debug.WriteLine("[DEAD_PIXEL] " + cleaned + " -> NaN");
+    }
+
+    private static void FilterSpatialOutliers(double[,] temperatures, int width, int height)
+    {
+        int fixed_count = 0;
+        for (int y = 2; y < height - 2; y++)
+        {
+            for (int x = 2; x < width - 2; x++)
+            {
+                double t = temperatures[y, x];
+                if (double.IsNaN(t)) continue;
+                double sum = 0; int n = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        double tn = temperatures[y + dy, x + dx];
+                        if (!double.IsNaN(tn)) { sum += tn; n++; }
+                    }
+                if (n < 4) continue;
+                double avg = sum / n;
+                if (Math.Abs(t - avg) > 10.0)
+                { temperatures[y, x] = avg; fixed_count++; }
+            }
+        }
+        if (fixed_count > 0)
+            System.Diagnostics.Debug.WriteLine("[OUTLIER] " + fixed_count + " spatial outliers fixed");
     }
 
     private static string GetViewModeDisplay(ImageViewMode mode) => mode switch

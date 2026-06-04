@@ -41,10 +41,16 @@ public sealed class ThermalModeEngine : IThermalModeEngine
         mode is ImageViewMode.Visible or ImageViewMode.Fusion or ImageViewMode.Blending or ImageViewMode.PiP or ImageViewMode.Msx;
 
     private static byte[] ComposeThermalPure(byte[] thermalPixels)
-        => (byte[])thermalPixels.Clone();
+    {
+        // Retorna referência direta — o caller (UpdateDisplayImage) não modifica o array retornado
+        return thermalPixels;
+    }
 
     private static byte[] ComposeVisiblePure(byte[] visiblePixels)
-        => (byte[])visiblePixels.Clone();
+    {
+        // Retorna referência direta — o caller (UpdateDisplayImage) não modifica o array retornado
+        return visiblePixels;
+    }
 
     /// <summary>
     /// Blending que preserva a saturação das cores térmicas usando a luminância
@@ -106,19 +112,23 @@ public sealed class ThermalModeEngine : IThermalModeEngine
             for (int x = 1; x < width - 1; x++)
             {
                 int idxC = (y * stride) + (x * 4);
+
+
                 int idxT = ((y - 1) * stride) + (x * 4);
                 int idxB = ((y + 1) * stride) + (x * 4);
                 int idxL = (y * stride) + ((x - 1) * 4);
                 int idxR = (y * stride) + ((x + 1) * 4);
 
-                int cLuma = (visiblePixels[idxC] + visiblePixels[idxC + 1] + visiblePixels[idxC + 2]) / 3;
-                int tLuma = (visiblePixels[idxT] + visiblePixels[idxT + 1] + visiblePixels[idxT + 2]) / 3;
-                int bLuma = (visiblePixels[idxB] + visiblePixels[idxB + 1] + visiblePixels[idxB + 2]) / 3;
-                int lLuma = (visiblePixels[idxL] + visiblePixels[idxL + 1] + visiblePixels[idxL + 2]) / 3;
-                int rLuma = (visiblePixels[idxR] + visiblePixels[idxR + 1] + visiblePixels[idxR + 2]) / 3;
+                // Rec.601 luma: B=0.114, G=0.587, R=0.299 (BGRA pixel order)
+                int cLuma = (int)(visiblePixels[idxC] * 0.114 + visiblePixels[idxC + 1] * 0.587 + visiblePixels[idxC + 2] * 0.299);
+                int tLuma = (int)(visiblePixels[idxT] * 0.114 + visiblePixels[idxT + 1] * 0.587 + visiblePixels[idxT + 2] * 0.299);
+                int bLuma = (int)(visiblePixels[idxB] * 0.114 + visiblePixels[idxB + 1] * 0.587 + visiblePixels[idxB + 2] * 0.299);
+                int lLuma = (int)(visiblePixels[idxL] * 0.114 + visiblePixels[idxL + 1] * 0.587 + visiblePixels[idxL + 2] * 0.299);
+                int rLuma = (int)(visiblePixels[idxR] * 0.114 + visiblePixels[idxR + 1] * 0.587 + visiblePixels[idxR + 2] * 0.299);
 
                 int laplaciano = (4 * cLuma) - tLuma - bLuma - lLuma - rLuma;
-                int realce = (int)(laplaciano * ganhoContorno * 1.15);
+                // Ganho normalizado: ~0.25 = MSX suave, ~0.60 = MSX padrão FLIR, ~1.0 = máximo
+                int realce = (int)(laplaciano * ganhoContorno * 2.5);
 
                 int dest = (y * stride) + (x * 4);
                 resultado[dest]     = (byte)Math.Clamp(thermalPixels[dest]     + realce, 0, 255);
