@@ -1,0 +1,67 @@
+================================================================================
+SUPER RELATÓRIO DE CALIBRAÇÃO DE CORES - TERMOGRAMAS
+Gerado em: 2026-06-02 12:28:59
+================================================================================
+
+[ARQUIVOS ANALISADOS]
+Original: 2.jpg
+Render:   2_render_apos_refactoring.jpg
+Caminho original: c:\Users\Leonam Dias\Documents\Projetos C#\Thermix Studio\2.jpg
+Dimensões original: 320x240 pixels
+Dimensões render:   320x240 pixels
+
+[ESTATÍSTICAS DE BRILHO (Luminância - canal V do HSV)]
+Métrica          Original       Render    Diferença (R-O)
+------------------------------------------------------------
+Mean               182.01       158.24             -23.77
+Std                 56.20        40.95             -15.25
+Median             185.00       162.00             -23.00
+Min                  0.00         0.00              +0.00
+Max                255.00       255.00              +0.00
+
+[COMPARAÇÃO DE HISTOGRAMAS - MÉTRICAS DETALHADAS]
+(Correlação: 1 = idêntico, 0 = sem correlação; Chi²: menor é melhor; Interseção: maior é melhor; Bhattacharyya: 0 = idêntico; Wasserstein: 0 = idêntico)
+
+Canal R:
+  • Correlação:     0.139501
+  • Chi-quadrado:   2.0712
+  • Interseção:     0.5168
+  • Bhattacharyya:  0.445315
+  • Wasserstein:    0.001213
+
+Canal G:
+  • Correlação:     0.335600
+  • Chi-quadrado:   2.6332
+  • Interseção:     0.3952
+  • Bhattacharyya:  0.528681
+  • Wasserstein:    0.002884
+
+Canal B:
+  • Correlação:     0.602200
+  • Chi-quadrado:   1.5156
+  • Interseção:     0.5463
+  • Bhattacharyya:  0.416759
+  • Wasserstein:    0.002800
+
+Canal Luminância:
+  • Correlação:     0.380360
+  • Chi-quadrado:   3.0366
+  • Interseção:     0.4302
+  • Bhattacharyya:  0.488976
+  • Wasserstein:    0.002222
+
+[INTERPRETAÇÃO E SUGESTÕES DE COLORAÇÃO]
+• O render está MAIS ESCURO que o original em média 23.77 níveis de cinza.
+  → Recomendação: Aumente o ganho geral/brilho no software de renderização térmica.
+• Correlação média entre canais RGB: 0.3591
+  → Alerta: A paleta de cores (falsas cores) do render está bastante divergente do original.
+• NOTA: O canal de vermelho (R) apresenta discrepância. O render pode estar com excesso de tons quentes (laranja/vermelho intenso) fora do ponto focal térmico.
+
+[ARQUIVOS DE APOIO GERADOS NA MESMA PASTA]
+• histogram_comparison.png  - Gráfico visual mostrando os desvios de cor
+• corrected_render.jpg       - Render corrigido usando o padrão matemático da original
+• lut_corrected.jpg          - Render corrigido via aproximação de LUT de 32 bits
+
+================================================================================
+FIM DO RELATÓRIO
+================================================================================

@@ -1,0 +1,75 @@
+Análise técnica do Claude Ai
+
+Renderização fosca no ThermalPaletteEngine
+Por que a imagem renderizada parece mais opaca que a original da FLIR, e como corrigir.
+
+Problema raiz
+
+O engine possui dois caminhos de renderização. O caminho correto — RenderFlirEmbeddedDisplay — só é ativado quando três condições são satisfeitas simultaneamente:
+
+1.
+EmbeddedPaletteBgra presente com exatamente 1024 bytes
+2.
+FlirColorUtils.IsFlir(metadata) retornar true
+3.
+paletteName ser "Original", ou coincidir com PaletteName ou DetectedPalette
+Se qualquer condição falhar, o pipeline cai no caminho com HE + curvas customizadas, que degrada a fidelidade tonal.
+
+As quatro camadas de degradação
+
+1 — Histogram Equalization (12%)
+
+maior culpado
+normalized = (linearNorm * 0.88) + (heNorm * 0.12)
+
+Os 12% de HE empurram pixels escuros (roxo profundo, ~0.05) para ~0.08–0.12. Os pretos viram cinza-arroxeado. É aqui que nasce o efeito "fosco".
+
+2 — Curva DDE (gamma + zona quente)
+
+gammaOut = Pow(normalized / 0.78, 1.08) * 0.78
+
+Para normalized = 0.3, gera gammaOut ≈ 0.325. Elevação de +8% nos tons médios sobre um sinal já inflado pelo HE.
+
+3 — MidLift na faixa roxa
+
+SmoothStep(0.46, 0.78, normalized) * 0.028
+
+A faixa 0.46–0.78 cobre exatamente a zona roxa/magenta da paleta Iron. Adiciona mais +2.8% nessa região, amplificando o resultado dos passos anteriores.
+
+4 — WarmDetail + WhiteBoost (impacto menor)
+
+Individualmente pequenos, mas aplicados sobre um sinal já elevado pelos três passos anteriores contribuem para a perda de saturação nas cores quentes.
+
+Efeito acumulado por tom
+
+Valor original	Após HE	Após DDE	Após MidLift	Resultado visual
+0.05 (preto)	0.08	0.087	0.087	roxo acinzentado
+0.30 (roxo médio)	0.33	0.357	0.380	muito claro / lavado
+0.80 (laranja)	0.81	varia	+0.015	OK, pouco impacto
+Fix sugerido
+
+A função ApplyFlirPaletteStretch já existe no seu código e já é usada pelo RenderFlirEmbeddedDisplay. Aplique-a também no pipeline LUT, substituindo todo o bloco HE + curvas:
+
+substituir
+
+double normalized = (linearNorm * 0.88) + (heNorm * 0.12);
+// curva DDE (gammaOut / hiOut / tSmooth)
+// midLift * 0.028
+// PreserveWarmDetail(normalized)
+// whiteBoost * 0.015
+por
+
+double normalized = ApplyFlirPaletteStretch(linearNorm);
+
+// Opcional: manter apenas o boost no núcleo quente
+// (não afeta os tons escuros / roxos)
+double whiteBoost = SmoothStep(0.94, 0.99, normalized);
+normalized = Math.Clamp(normalized + (whiteBoost * 0.015), 0.0, 1.0);
+Por que funciona: ApplyFlirPaletteStretch aplica o mesmo stretch não-linear que a câmera usa internamente — linear → stretch suave → LUT — sem redistribuir os tons via histograma.
+
+Teste de validação rápido
+
+Antes de aplicar o fix definitivo, confirme o diagnóstico trocando temporariamente todo o bloco por:
+
+double normalized = linearNorm;
+Se a imagem ficar visivelmente mais próxima da FLIR original, o diagnóstico está confirmado e o fix com ApplyFlirPaletteStretch é o caminho correto.

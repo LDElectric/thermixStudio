@@ -1,0 +1,163 @@
+Análise técnica do chatGPT
+
+Renderização fosca no ThermalPaletteEngine
+Por que a imagem renderizada parece mais opaca que a original da FLIR, e como corrigir.
+
+O principal é que sua imagem não está sendo renderizada por um pipeline "simples". Você está aplicando uma sequência de transformações que alteram a distribuição tonal antes de chegar à LUT.
+
+O maior culpado
+
+Aqui:
+double normalized = (linearNorm * 0.88) + (heNorm * 0.12);
+Mesmo sendo apenas 12% de HE, isso já muda a distribuição dos tons.
+
+A FLIR original normalmente faz algo muito próximo de:
+normalized = linearNorm;
+ou usa um DDE proprietário calculado durante a captura.
+
+Quando você mistura o CDF:
+heNorm = InterpolateCdf(cdf, binPosition) / cdfMax;
+você empurra muitos pixels médios para regiões mais brilhantes da paleta.
+
+Resultado:
+
+pretos ficam menos pretos
+roxos escuros ficam mais claros
+a imagem parece "lavada"
+
+Exatamente o que vejo no seu render.
+
+Segundo culpado
+
+Logo depois você aplica:
+double gammaOut =
+    Math.Pow(normalized / knee, 1.08) * knee;
+    e depois:double hiOut =
+    knee + Math.Pow(xHi, 0.22) * (1.0 - knee);
+    e mistura os dois.
+
+Isso cria uma curva tonal própria.
+
+Ou seja:
+Temperatura
+ ↓
+Linear
+ ↓
+Histogram Equalization
+ ↓
+Curva DDE custom
+ ↓
+Mid Lift
+ ↓
+Warm Detail
+ ↓
+White Boost
+ ↓
+LUT
+
+A FLIR original provavelmente faz:
+Temperatura
+ ↓
+Stretch visual
+ ↓
+LUT
+
+ou algo bem próximo.
+
+Terceiro culpado
+
+Você faz interpolação contínua da LUT:
+
+WriteInterpolatedLutColor(...)
+
+e lá:
+
+pixels[dest] =
+    LerpByte(c0[2], c1[2], t);
+
+    A FLIR frequentemente usa índices discretos da LUT.
+
+Exemplo:
+index = (int)(normalized * 223);
+color = lut[index];
+
+sem interpolar.
+
+A interpolação gera cores intermediárias que nem existem na paleta original.
+
+Isso reduz contraste local.
+
+Quarto culpado
+
+Você ainda aplica:
+midLift * 0.028
+PreserveWarmDetail()
+whiteBoost * 0.015
+
+Esses ajustes são pequenos individualmente.
+
+Mas somados:
+HE
++
+Curva DDE
++
+MidLift
++
+WarmDetail
++
+WhiteBoost
+
+acabam mudando bastante a aparência.
+
+O detalhe que denuncia
+
+Na sua imagem:
+
+o fundo lateral está mais roxo
+o painel elétrico está mais claro
+os laranjas estão mais espalhados
+
+Isso indica que os médios tons foram elevados.
+
+Se fosse problema de LUT, os amarelos também mudariam muito.
+
+Mas eles continuam parecidos.
+
+Então o problema não parece ser a paleta.
+
+Parece ser a transformação tonal antes da paleta.
+
+O teste que eu faria
+
+Troque temporariamente todo o bloco:
+
+double normalized = (linearNorm * 0.88) + (heNorm * 0.12);
+
+/* curvas */
+/* midlift */
+/* warmdetail */
+/* whiteboost */
+
+por:
+double normalized = linearNorm;
+
+e mantenha:
+WriteInterpolatedLutColor(...)
+
+Se a imagem ficar muito mais próxima da FLIR, você encontrou a causa.
+
+Outro ponto importante
+Vi isto:
+if (ShouldUseFlirEmbeddedDisplayMapping(...))
+{
+    return RenderFlirEmbeddedDisplay(...);
+}
+
+Dentro desse caminho você usa:
+normalized = ApplyFlirPaletteStretch(normalized);
+
+e nada mais.
+
+Esse caminho está muito mais próximo do comportamento real da FLIR.
+
+Por isso minha suspeita é que sua imagem de teste não está passando pelo RenderFlirEmbeddedDisplay(), mas pelo pipeline completo de equalização.

@@ -314,7 +314,8 @@ static async Task BatchCalibrateAsync(string root, string outputDir)
             System.Runtime.InteropServices.Marshal.Copy(origData.Scan0, origPixels, 0, origPixels.Length);
             origBmp.UnlockBits(origData);
 
-            rendered = HistogramMatcher.MatchAdaptive(rendered, origPixels, img.Width, img.Height, 0.08);
+            var lut = TemperatureColorLut.BuildFromPalette(img.Temperatures, origPixels, null, img.Width, img.Height, minC, maxC, numBins: 2048);
+            lut.Apply(img.Temperatures, rendered, img.Width, img.Height, minC, maxC);
 
             // Salvar
             using var bmp = new Bitmap(img.Width, img.Height, PixelFormat.Format32bppArgb);

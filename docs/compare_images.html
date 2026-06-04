@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<title>Comparação de Cores - Original vs Render</title>
+<style>
+  body{font-family:Segoe UI,sans-serif;background:#1a1a2e;color:#e0e0e0;margin:0;padding:12px}
+  h2{color:#ff6600;margin:8px 0}
+  .grid{display:flex;gap:12px;flex-wrap:wrap}
+  .panel{flex:1;min-width:340px;background:#22223a;border-radius:8px;padding:12px}
+  canvas{max-width:100%;border:1px solid #444;cursor:crosshair;display:block}
+  .info{font-size:12px;margin:4px 0;font-family:Consolas,monospace}
+  .swatch{display:inline-block;width:40px;height:20px;border:1px solid #888;vertical-align:middle;margin:0 4px}
+  .diff-bar{height:24px;background:#333;border-radius:4px;overflow:hidden;margin:8px 0}
+  .diff-fill{height:100%;background:#ff4444;transition:width .3s}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+  td,th{border:1px solid #333;padding:4px 8px;text-align:center}
+  th{background:#2a2a42;color:#ffaa44}
+  .bad{color:#ff6666}.good{color:#66ff66}.warn{color:#ffaa44}
+</style>
+</head>
+<body>
+<h2>🔬 Comparação: Original (2.jpg) vs Render (2_analise.jpg)</h2>
+<div class="grid">
+  <div class="panel">
+    <h3>Original</h3>
+    <canvas id="c1"></canvas>
+    <div class="info">Pixels: <span id="info1">—</span></div>
+    <div>Cor no pixel: <span class="swatch" id="sw1"></span><span id="rgb1">—</span></div>
+  </div>
+  <div class="panel">
+    <h3>Render</h3>
+    <canvas id="c2"></canvas>
+    <div class="info">Pixels: <span id="info2">—</span></div>
+    <div>Cor no pixel: <span class="swatch" id="sw2"></span><span id="rgb2">—</span></div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:12px">
+  <h3>📊 Análise Estatística Global</h3>
+  <div id="stats">Analisando...</div>
+  <h4>Mapa de Diferença (|ΔR| + |ΔG| + |ΔB|)</h4>
+  <canvas id="diffMap" style="max-width:100%;border:1px solid #444"></canvas>
+  <div class="info">Diferença média por pixel: <span id="avgDiff">—</span></div>
+  <div class="diff-bar"><div class="diff-fill" id="diffBar"></div></div>
+  <h4>🔴 Pixels com maior divergência (>40 por canal)</h4>
+  <table id="topDiffs"><tr><th>X</th><th>Y</th><th>Orig R,G,B</th><th>Rend R,G,B</th><th>ΔR</th><th>ΔG</th><th>ΔB</th></tr></table>
+  <h4>📈 Distribuição por Região da Paleta</h4>
+  <div id="regionAnalysis">—</div>
+</div>
+
+<script>
+(async function(){
+  async function loadImg(url){
+    return new Promise((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>resolve(img);
+      img.onerror=reject;
+      img.src=url;
+    });
+  }
+  
+  const [img1,img2]=await Promise.all([
+    loadImg('file:///c:/Users/Leonam Dias/Documents/Projetos C#/Thermix Studio/2.jpg'),
+    loadImg('file:///c:/Users/Leonam Dias/Documents/Projetos C#/Thermix Studio/2_analise.jpg')
+  ]);
+  
+  // Use same dimensions (the smaller one)
+  const w=Math.min(img1.naturalWidth,img2.naturalWidth);
+  const h=Math.min(img1.naturalHeight,img2.naturalHeight);
+  
+  function setupCanvas(canvasId,img){
+    const c=document.getElementById(canvasId);
+    c.width=w;c.height=h;
+    const ctx=c.getContext('2d');
+    ctx.drawImage(img,0,0,w,h);
+    return ctx;
+  }
+  
+  const ctx1=setupCanvas('c1',img1);
+  const ctx2=setupCanvas('c2',img2);
+  
+  // Get pixel data
+  const d1=ctx1.getImageData(0,0,w,h).data;
+  const d2=ctx2.getImageData(0,0,w,h).data;
+  
+  document.getElementById('info1').textContent=`${w}×${h} = ${w*h} pixels`;
+  document.getElementById('info2').textContent=`${w}×${h} = ${w*h} pixels`;
+  
+  // Mouse tracking
+  function onMouse(canvasId,data,swId,rgbId){
+    document.getElementById(canvasId).addEventListener('mousemove',e=>{
+      const rect=e.target.getBoundingClientRect();
+      const sx=Math.floor((e.clientX-rect.left)/rect.width*w);
+      const sy=Math.floor((e.clientY-rect.top)/rect.height*h);
+      if(sx<0||sx>=w||sy<0||sy>=h)return;
+      const idx=(sy*w+sx)*4;
+      const r=data[idx],g=data[idx+1],b=data[idx+2];
+      document.getElementById(swId).style.backgroundColor=`rgb(${r},${g},${b})`;
+      document.getElementById(rgbId).textContent=`(${r}, ${g}, ${b}) | #${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')} | HSL:(${rgbToHsl(r,g,b)})`;
+    });
+  }
+  function rgbToHsl(r,g,b){
+    r/=255;g/=255;b/=255;
+    const max=Math.max(r,g,b),min=Math.min(r,g,b);
+    let h=0,s=0,l=(max+min)/2;
+    if(max!==min){
+      const d=max-min;
+      s=l>0.5?d/(2-max-min):d/(max+min);
+      switch(max){
+        case r:h=((g-b)/d+(g<b?6:0))/6;break;
+        case g:h=((b-r)/d+2)/6;break;
+        case b:h=((r-g)/d+4)/6;break;
+      }
+    }
+    return `${Math.round(h*360)}°, ${Math.round(s*100)}%, ${Math.round(l*100)}%`;
+  }
+  onMouse('c1',d1,'sw1','rgb1');
+  onMouse('c2',d2,'sw2','rgb2');
+  
+  // === DIFF ANALYSIS ===
+  const diffData=new Uint8ClampedArray(w*h*4);
+  let totalDiff=0;
+  const allDiffs=[];
+  
+  // Exclude UI overlay areas (scale bar, logo, temp boxes)
+  // Scale bar area: x>290 (at 320px width)
+  const scaleBarX=Math.floor(290*w/320);
+  const logoY1=Math.floor(210*h/240);
+  const topBarY2=Math.floor(28*h/240);
+  
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const idx=(y*w+x)*4;
+      const r1=d1[idx],g1=d1[idx+1],b1=d1[idx+2];
+      const r2=d2[idx],g2=d2[idx+1],b2=d2[idx+2];
+      const dr=Math.abs(r1-r2),dg=Math.abs(g1-g2),db=Math.abs(b1-b2);
+      const pixelDiff=dr+dg+db;
+      
+      // Skip UI overlay region
+      const isUI=(x>scaleBarX)||(y<topBarY2)||(y>logoY1);
+      
+      if(!isUI){
+        totalDiff+=pixelDiff;
+        allDiffs.push({x,y,r1,g1,b1,r2,g2,b2,dr,dg,db,pixelDiff});
+      }
+      
+      // Heat map: green=identical, yellow=moderate, red=big diff
+      const intensity=Math.min(255,Math.floor(pixelDiff*1.5));
+      diffData[idx]=Math.min(255,intensity);     // R
+      diffData[idx+1]=Math.max(0,255-intensity); // G
+      diffData[idx+2]=0;                          // B
+      diffData[idx+3]=255;
+    }
+  }
+  
+  // Diff map canvas
+  const diffCanvas=document.getElementById('diffMap');
+  diffCanvas.width=w;diffCanvas.height=h;
+  const diffCtx=diffCanvas.getContext('2d');
+  const diffImg=new ImageData(diffData,w,h);
+  diffCtx.putImageData(diffImg,0,0);
+  
+  const avgDiff=totalDiff/(allDiffs.length||1);
+  document.getElementById('avgDiff').textContent=`${avgDiff.toFixed(1)} (0=idêntico, >60=visivelmente diferente)`;
+  document.getElementById('diffBar').style.width=Math.min(100,avgDiff/3)+'%';
+  
+  // Top 20 most different pixels
+  allDiffs.sort((a,b)=>b.pixelDiff-a.pixelDiff);
+  const top20=allDiffs.slice(0,20);
+  const tbody=document.getElementById('topDiffs');
+  tbody.innerHTML='<tr><th>X</th><th>Y</th><th>Orig R,G,B</th><th>Rend R,G,B</th><th>ΔR</th><th>ΔG</th><th>ΔB</th><th>Total Δ</th></tr>';
+  for(const d of top20){
+    const cls=d.pixelDiff>80?'bad':(d.pixelDiff>40?'warn':'good');
+    tbody.innerHTML+=`<tr class="${cls}">
+      <td>${d.x}</td><td>${d.y}</td>
+      <td>${d.r1},${d.g1},${d.b1}</td>
+      <td>${d.r2},${d.g2},${d.b2}</td>
+      <td>${d.dr}</td><td>${d.dg}</td><td>${d.db}</td>
+      <td><b>${d.pixelDiff}</b></td>
+    </tr>`;
+  }
+  
+  // === REGION ANALYSIS by luminance ===
+  function getLuma(r,g,b){return 0.299*r+0.587*g+0.114*b;}
+  
+  const regions={cold:[],mid:[],warm:[],hot:[]};
+  const regionNames={cold:'Zona Fria (0-25%)',mid:'Zona Média (25-50%)',warm:'Zona Quente (50-75%)',hot:'Zona Núcleo (75-100%)'};
+  
+  for(const d of allDiffs){
+    const luma=getLuma(d.r1,d.g1,d.b1);
+    if(luma<64)regions.cold.push(d);
+    else if(luma<128)regions.mid.push(d);
+    else if(luma<192)regions.warm.push(d);
+    else regions.hot.push(d);
+  }
+  
+  let regionHtml='<table><tr><th>Região</th><th>Pixels</th><th>Δ Médio</th><th>Tendência R</th><th>Tendência G</th><th>Tendência B</th></tr>';
+  for(const [key,name] of Object.entries(regionNames)){
+    const arr=regions[key];
+    if(arr.length===0)continue;
+    const avgD=arr.reduce((s,d)=>s+d.pixelDiff,0)/arr.length;
+    const avgDr=arr.reduce((s,d)=>s+(d.r2-d.r1),0)/arr.length;
+    const avgDg=arr.reduce((s,d)=>s+(d.g2-d.g1),0)/arr.length;
+    const avgDb=arr.reduce((s,d)=>s+(d.b2-d.b1),0)/arr.length;
+    const tendR=avgDr>1?'🔺 mais vermelho':(avgDr<-1?'🔻 menos vermelho':'➖ neutro');
+    const tendG=avgDg>1?'🔺 mais verde':(avgDg<-1?'🔻 menos verde':'➖ neutro');
+    const tendB=avgDb>1?'🔺 mais azul':(avgDb<-1?'🔻 menos azul':'➖ neutro');
+    regionHtml+=`<tr>
+      <td><b>${name}</b></td>
+      <td>${arr.length}</td>
+      <td>${avgD.toFixed(1)}</td>
+      <td>${tendR} (${avgDr.toFixed(1)})</td>
+      <td>${tendG} (${avgDg.toFixed(1)})</td>
+      <td>${tendB} (${avgDb.toFixed(1)})</td>
+    </tr>`;
+  }
+  regionHtml+='</table>';
+  document.getElementById('regionAnalysis').innerHTML=regionHtml;
+  
+  // Global stats
+  const avgDr=allDiffs.reduce((s,d)=>s+(d.r2-d.r1),0)/allDiffs.length;
+  const avgDg=allDiffs.reduce((s,d)=>s+(d.g2-d.g1),0)/allDiffs.length;
+  const avgDb=allDiffs.reduce((s,d)=>s+(d.b2-d.b1),0)/allDiffs.length;
+  const pctOver20=allDiffs.filter(d=>d.pixelDiff>20).length/allDiffs.length*100;
+  const pctOver40=allDiffs.filter(d=>d.pixelDiff>40).length/allDiffs.length*100;
+  const pctOver60=allDiffs.filter(d=>d.pixelDiff>60).length/allDiffs.length*100;
+  
+  document.getElementById('stats').innerHTML=`
+    <table>
+      <tr><th>Métrica</th><th>Valor</th><th>Interpretação</th></tr>
+      <tr><td>Δ Médio por pixel</td><td>${avgDiff.toFixed(1)}</td><td>${avgDiff<15?'🟢 Excelente':avgDiff<30?'🟡 Aceitável':'🔴 Significativo')}</td></tr>
+      <tr><td>% pixels com Δ>20</td><td>${pctOver20.toFixed(1)}%</td><td>${pctOver20<5?'🟢':pctOver20<15?'🟡':'🔴'}</td></tr>
+      <tr><td>% pixels com Δ>40</td><td>${pctOver40.toFixed(1)}%</td><td>${pctOver40<1?'🟢':pctOver40<5?'🟡':'🔴'}</td></tr>
+      <tr><td>% pixels com Δ>60</td><td>${pctOver60.toFixed(1)}%</td><td>${pctOver60<0.5?'🟢':pctOver60<2?'🟡':'🔴'}</td></tr>
+      <tr><td>Tendência global R</td><td>${avgDr.toFixed(1)}</td><td>${avgDr>2?'Render mais vermelho':avgDr<-2?'Render menos vermelho':'Neutro'}</td></tr>
+      <tr><td>Tendência global G</td><td>${avgDg.toFixed(1)}</td><td>${avgDg>2?'Render mais verde':avgDg<-2?'Render menos verde':'Neutro'}</td></tr>
+      <tr><td>Tendência global B</td><td>${avgDb.toFixed(1)}</td><td>${avgDb>2?'Render mais azul':avgDb<-2?'Render menos azul':'Neutro'}</td></tr>
+    </table>
+  `;
+})();
+</script>
+</body>
+</html>

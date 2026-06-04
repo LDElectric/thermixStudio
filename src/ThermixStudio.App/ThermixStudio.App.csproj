@@ -18,30 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\..\icone_windows.ico"
-                      Link="icone_windows.ico"
-                      LogicalName="ThermixStudio.App.icone_windows" />
-      <EmbeddedResource Include="..\..\.venv\Lib\site-packages\dji_executables\dji_thermal_sdk_v1.7\exiftool-12.35.exe"
-        Condition="Exists('..\..\.venv\Lib\site-packages\dji_executables\dji_thermal_sdk_v1.7\exiftool-12.35.exe')"
-        Link="tools\exiftool.exe"
-        LogicalName="ThermixStudio.App.Embedded.exiftool.exe" />
-      <EmbeddedResource Include="docs\manual-instrucoes.html"
-        LogicalName="ThermixStudio.App.Embedded.manual-instrucoes.html" />
-      <None Include="templates\relatorio termografico.html"
-        Link="templates\relatorio termografico.html"
-        CopyToOutputDirectory="PreserveNewest"
-        CopyToPublishDirectory="Never" />
-      <None Include="docs\manual-instrucoes.html"
-        Link="docs\manual-instrucoes.html"
-        CopyToOutputDirectory="PreserveNewest"
-        CopyToPublishDirectory="Never" />
-      <Content Include="paletas\*_lut.json"
-        CopyToOutputDirectory="Always"
-        CopyToPublishDirectory="PreserveNewest" />
-      <EmbeddedResource Include="..\..\flir_logo.png"
-        Link="flir_logo.png"
-        LogicalName="ThermixStudio.App.flir_logo.png" />
-      <None Include="paletas\*_lut.csv"
+    <None Include="paletas\*_lut.csv"
         Condition="Exists('paletas')"
         CopyToOutputDirectory="PreserveNewest"
         CopyToPublishDirectory="PreserveNewest" />

@@ -151,8 +151,10 @@ public sealed partial class MainViewModel
         // ══════════════════════════════════════════════════════════════
         // LUT no PaletteScale (EXIF). Sliders fora → Linear.
         // ══════════════════════════════════════════════════════════════
-        // LUT desabilitada — paleta Iron do JSON (cores corretas, sem JPEG)
-        bool useLut = false;
+        // LUT calibrada com mascara de overlay + mediana
+        // LUT somente para Iron/Original. Outras paletas: render linear (JSON).
+        bool isIronPalette = SelectedPalette == ThermalPalette.Iron || SelectedPalette == ThermalPalette.Original;
+        bool useLut = isIronPalette && hasOriginal && originalPixels is not null && ImageViewMode != ImageViewMode.Original && ImageViewMode != ImageViewMode.Visible && _loadedImage?.Temperatures is not null;
 
         if (useLut)
         {
@@ -167,7 +169,7 @@ public sealed partial class MainViewModel
 
                 _temperatureLut = TemperatureColorLut.Build(
                     img.Temperatures, orig, width, height,
-                    buildMin, buildMax, numBins: 4096, cropMargin: 0.10);
+                    buildMin, buildMax, mask: OverlayMask.FlirE8xt, numBins: 256);
                 Debug.WriteLine("[TEMP-LUT] Slider=" + buildMin.ToString("F1") + "~" + buildMax.ToString("F1") + " bins=4096");
             }
 

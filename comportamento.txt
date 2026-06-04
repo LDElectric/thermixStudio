@@ -1,0 +1,300 @@
+Cenário 1: O operador ajustou Level/Span manualmente na câmera antes de capturar
+O que fica gravado no arquivo?
+
+Quando a imagem é salva:
+
+Os dados radiométricos completos continuam armazenados.
+O Level/Span usado na visualização da câmera também é armazenado como metadado de apresentação.
+A paleta usada também é armazenada.
+
+Ou seja:
+
+A temperatura real dos pixels não muda.
+O que muda é apenas a forma como esses valores são mapeados para as cores.
+
+Exemplo:
+
+Cena:
+
+mínimo real = 20°C
+máximo real = 80°C
+
+O operador ajusta:
+
+Level = 40°C
+Span = 20°C
+
+equivalente a:
+
+Min visual = 30°C
+Max visual = 50°C
+
+A câmera renderiza somente esse intervalo.
+
+O que acontece ao importar no FLIR Tools/Thermal Studio?
+
+Normalmente o software abre a imagem utilizando os parâmetros salvos pela câmera.
+
+Ou seja:
+
+A primeira visualização tende a parecer igual à que o operador via no display no momento da captura.
+
+Não porque a imagem foi alterada.
+
+Mas porque o software reaplica:
+
+paleta
+level
+span
+configurações de apresentação
+
+gravadas no arquivo.
+
+Se o usuário diminuir o valor mínimo da escala
+
+Exemplo:
+
+Antes:
+
+Min = 30°C
+Max = 50°C
+
+Depois:
+
+Min = 20°C
+Max = 50°C
+
+O que acontece?
+
+Agora um intervalo maior de temperaturas precisa caber na mesma quantidade de cores.
+
+Antes:
+
+30 → 50°C
+
+20°C de faixa.
+
+Agora:
+
+20 → 50°C
+
+30°C de faixa.
+
+Consequências:
+
+Regiões frias ganham mais detalhe
+
+Temperaturas entre:
+
+20°C e 30°C
+
+que antes estavam todas "coladas" na cor mínima, passam a receber gradientes.
+
+Regiões quentes perdem contraste relativo
+
+Como mais temperaturas precisam dividir a mesma paleta:
+
+diferenças pequenas ficam menos evidentes.
+
+A imagem parece:
+
+menos contrastada
+menos agressiva visualmente
+Se o usuário aumentar o valor mínimo
+
+Exemplo:
+
+Antes:
+
+30 → 50°C
+
+Depois:
+
+35 → 50°C
+
+O que acontece?
+
+Tudo abaixo de 35°C é comprimido para a cor mínima da paleta.
+
+Consequências:
+
+Áreas frias perdem detalhe
+
+20°C
+
+25°C
+
+30°C
+
+34°C
+
+podem ficar exatamente da mesma cor.
+
+Áreas centrais ganham contraste
+
+Como a faixa ficou menor:
+
+35 → 50°C
+
+Agora existem mais cores disponíveis por grau.
+
+Diferenças pequenas ficam mais visíveis.
+
+Se o usuário aumentar o valor máximo
+
+Exemplo:
+
+Antes:
+
+30 → 50°C
+
+Depois:
+
+30 → 60°C
+
+Consequências:
+
+A faixa aumenta.
+
+Mais temperaturas precisam compartilhar a mesma paleta.
+
+O resultado é:
+
+redução de contraste
+transições mais suaves
+menos destaque para pontos quentes
+Se o usuário diminuir o valor máximo
+
+Exemplo:
+
+Antes:
+
+30 → 50°C
+
+Depois:
+
+30 → 45°C
+
+Consequências:
+
+Tudo acima de 45°C é saturado.
+
+Ou seja:
+
+45°C
+50°C
+60°C
+80°C
+
+recebem a mesma cor máxima.
+
+Mas o contraste entre:
+
+30°C e 45°C
+
+aumenta bastante.
+
+Por isso é comum reduzir o máximo para destacar pequenas diferenças térmicas.
+
+O que acontece matematicamente?
+
+O software pega cada pixel:
+
+TemperaturaPixel
+
+e calcula algo equivalente a:
+normalized =
+(TemperaturaPixel - MinEscala)
+/
+(MaxEscala - MinEscala)
+
+Depois:
+
+0 → cor mínima da paleta
+1 → cor máxima da paleta
+
+Valores fora da faixa:
+
+< MinEscala → cor mínima
+> MaxEscala → cor máxima
+
+
+Isso é exatamente o comportamento típico observado no FLIR Tools e Thermal Studio.
+
+Cenário 2: O operador NÃO ajustou Level/Span manualmente
+
+Aqui entra o modo automático.
+
+Durante a captura
+
+A câmera geralmente calcula:
+
+MinEscala = temperatura mínima da cena
+MaxEscala = temperatura máxima da cena
+
+ou algo muito próximo disso.
+
+Alguns modelos usam:
+
+percentis
+algoritmos de contraste
+
+mas a ideia é a mesma:
+
+usar a distribuição térmica da imagem para escolher uma faixa visual.
+
+Importante: o software NÃO recalcula automaticamente toda vez
+
+Este é um detalhe importante para quem está implementando um renderizador.
+
+Na maioria dos casos observados:
+
+O software abre usando o estado salvo no arquivo.
+
+Não abre recalculando:
+Min = menor pixel atual
+Max = maior pixel atual
+toda vez que o arquivo é carregado.
+
+Senão a imagem poderia abrir diferente da captura original.
+
+Fluxo resumido
+Captura com Level/Span manual
+
+Operador ajusta Level/Span
+↓
+Imagem é salva
+↓
+Dados radiométricos são preservados
+↓
+Level/Span são salvos como metadado
+↓
+FLIR Tools abre usando esses valores
+↓
+Imagem parece igual à câmera
+↓
+Usuário pode alterar Min/Max
+↓
+Somente o mapeamento de cores muda
+↓
+Temperaturas dos pixels permanecem idênticas
+
+Captura com Auto Level/Span
+
+Câmera calcula faixa automaticamente
+↓
+Faixa é salva no arquivo
+↓
+FLIR Tools abre usando essa faixa
+↓
+Imagem parece igual à visualização original
+↓
+Usuário pode alterar Min/Max
+↓
+Software recalcula o mapeamento de cores
+↓
+Dados radiométricos continuam inalterados
+
+Para o comportamento do seu programa, se o objetivo é replicar o FLIR Tools/Thermal Studio, a regra mais fiel é:
+
+Sempre renderizar inicialmente usando o Min/Max (ou Level/Span) gravado no termograma. Somente quando o usuário alterar esses controles é que o mapeamento de cores deve ser recalculado. Os valores radiométricos nunca devem ser modificados durante esse processo.

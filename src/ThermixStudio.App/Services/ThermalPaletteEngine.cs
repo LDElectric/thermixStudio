@@ -445,8 +445,7 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                 }
 
                 double normalized = Math.Clamp((val - minVal) / range, 0.0, 1.0);
-
-                // Priority 2: below/above PALETTE scale (EXIF PaletteScaleMinC/MaxC)
+                                // Priority 2: below/above PALETTE scale (EXIF PaletteScaleMinC/MaxC)
                 // Doc FLIR: BelowColor para t < PaletteScaleMin, AboveColor para t > PaletteScaleMax
                 // NÃO confundir com VisualScale (detectado da barra de UI na imagem)
                 double belowThreshold = profile.PaletteScaleMinC ?? minT;
@@ -513,8 +512,7 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                 }
 
                 var normalized = Math.Clamp((t - minT) / range, 0.0, 1.0);
-
-                // Priority 2: below/above PALETTE scale (EXIF PaletteScaleMinC/MaxC)
+                                // Priority 2: below/above PALETTE scale (EXIF PaletteScaleMinC/MaxC)
                 double belowThreshold = profile.PaletteScaleMinC ?? minT;
                 double aboveThreshold = profile.PaletteScaleMaxC ?? maxT;
                 if (profile.BelowColor.HasValue && t < belowThreshold)

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="ThermixStudio.App/ThermixStudio.App.csproj" />
+    <Project Path="ThermixStudio.Core/ThermixStudio.Core.csproj" />
+    <Project Path="ThermixStudio.Infrastructure/ThermixStudio.Infrastructure.csproj" />
+    <Project Path="ThermixStudio.Reports/ThermixStudio.Reports.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="../tests/ThermixStudio.RenderingChecks/ThermixStudio.RenderingChecks.csproj" />
+  </Folder>
+</Solution>

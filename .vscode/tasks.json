@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-thermix",
+			"type": "shell",
+			"command": "dotnet build src/ThermixStudio.App/ThermixStudio.App.csproj --nologo",
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "build"
+		}
+	]
+}
