@@ -42,10 +42,6 @@ public sealed partial class MainViewModel
     // ── Cache key da LUT para evitar rebuild desnecessário ──
     private string? _lutCacheKey;
 
-    // ── WriteableBitmap reutilizável (evita alocação a cada frame) ──
-    private WriteableBitmap? _reusableBitmap;
-    private int _reusableBitmapW, _reusableBitmapH;
-
     /// <summary>
     /// Unifica SanitizeDeadPixels + FilterSpatialOutliers + FastPercentiles em um único scan.
     /// </summary>
@@ -384,14 +380,10 @@ public sealed partial class MainViewModel
 
     private ImageSource BuildBitmapReusable(int width, int height, byte[] bgraPixels)
     {
-        if (_reusableBitmap == null || _reusableBitmapW != width || _reusableBitmapH != height)
-        {
-            _reusableBitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
-            _reusableBitmapW = width;
-            _reusableBitmapH = height;
-        }
-        _reusableBitmap.WritePixels(new Int32Rect(0, 0, width, height), bgraPixels, width * 4, 0);
-        return _reusableBitmap;
+        // Cria novo bitmap sempre: o binding WPF só atualiza quando a referência muda
+        var wb = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+        wb.WritePixels(new Int32Rect(0, 0, width, height), bgraPixels, width * 4, 0);
+        return wb;
     }
 
     private static ImageSource BuildBitmap(ThermalRenderResult render)
