@@ -23,11 +23,6 @@ public sealed partial class MainViewModel
     private byte[]? _cachedVisibleBgra;
     private (int w, int h) _cachedVisibleAlignedSize;
 
-    // ── Cache LRU de pixels BGRA do JPEG (3 entradas, evita I/O ao alternar) ──
-    private const int MaxCachedJpegBgra = 3;
-    private readonly Dictionary<string, byte[]> _jpegBgraCache = new();
-    private readonly LinkedList<string> _jpegBgraLru = new();
-
     // ── Cache do min/max da matriz de temperaturas ──
     private double _cachedMatrixMinC = double.MaxValue;
     private double _cachedMatrixMaxC = double.MinValue;
@@ -37,76 +32,6 @@ public sealed partial class MainViewModel
 
     // ── LUT Temperatura→Cor — construída 1x, aplicada todo frame ──
     private TemperatureColorLut? _temperatureLut;
-    // ── Cache key da LUT para evitar rebuild desnecessário ──
-    private string? _lutCacheKey;
-
-    /// <summary>
-    /// Unifica SanitizeDeadPixels + FilterSpatialOutliers + FastPercentiles em um único scan.
-    /// </summary>
-    private static (double min, double max) ScanAndCleanTemperatures(double[,] temps, int w, int h, double lowPct, double highPct)
-    {
-        const int bins = 1000;
-        var hist = new int[bins];
-        double min = double.MaxValue, max = double.MinValue;
-        int validCount = 0;
-        Span<double> neighbors = stackalloc double[9]; // stackalloc fora do loop
-
-        for (int y = 1; y < h - 1; y++)
-        {
-            for (int x = 1; x < w - 1; x++)
-            {
-                double t = temps[y, x];
-
-                // SanitizeDeadPixels inline: substitui NaN/Infinity por média dos vizinhos
-                if (!double.IsFinite(t))
-                {
-                    double sum = 0; int n = 0;
-                    for (int dy = -1; dy <= 1; dy++)
-                        for (int dx = -1; dx <= 1; dx++)
-                        {
-                            if (dx == 0 && dy == 0) continue;
-                            double v = temps[y + dy, x + dx];
-                            if (double.IsFinite(v)) { sum += v; n++; }
-                        }
-                    t = n > 0 ? sum / n : 20.0;
-                    temps[y, x] = t;
-                }
-
-                // FilterSpatialOutliers inline: mediana 3x3 para spikes (usa neighbors stackalloc já declarado)
-                if (y >= 2 && y < h - 2 && x >= 2 && x < w - 2)
-                {
-                    int ni = 0;
-                    for (int dy = -1; dy <= 1; dy++)
-                        for (int dx = -1; dx <= 1; dx++)
-                            neighbors[ni++] = temps[y + dy, x + dx];
-                    neighbors.Sort();
-                    double median = neighbors[4];
-                    double dev = Math.Abs(t - median);
-                    if (dev > 15.0 && dev > median * 0.15)
-                        t = median;
-                }
-
-                validCount++;
-                if (t < min) min = t;
-                if (t > max) max = t;
-
-                int b = (int)((t - min) / (max - min + 1e-10) * (bins - 1));
-                if (b >= 0 && b < bins) hist[b]++;
-            }
-        }
-
-        if (max <= min || validCount == 0) return (min, min + 1);
-
-        double range = max - min;
-        int lowTarget = (int)(validCount * lowPct);
-        int highTarget = (int)(validCount * highPct);
-        int cum = 0, lowBin = 0, highBin = bins - 1;
-        for (int b = 0; b < bins; b++) { cum += hist[b]; if (cum >= lowTarget) { lowBin = b; break; } }
-        cum = 0;
-        for (int b = 0; b < bins; b++) { cum += hist[b]; if (cum >= highTarget) { highBin = b; break; } }
-
-        return (min + lowBin / (double)bins * range, min + highBin / (double)bins * range);
-    }
 
     private static void FastPercentiles(double[,] temps, double lowPct, double highPct, out double low, out double high)
     {
@@ -160,43 +85,6 @@ public sealed partial class MainViewModel
         _cachedMatrixMinC = double.MaxValue;
         _cachedMatrixMaxC = double.MinValue;
         _temperatureLut = null;
-        _lutCacheKey = null;
-        _renderCache.Clear(); // invalida cache de pixels renderizados ao trocar de termograma
-    }
-
-    /// <summary>
-    /// Adiciona ThermalImageData ao cache LRU. Limita a MaxCachedImages entradas.
-    /// </summary>
-    private void CacheLoadedImage(string path, ThermalImageData image)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return;
-        // Remove entrada antiga se existir (para reordenar LRU)
-        _imageCacheLru.Remove(path);
-        _imageCache[path] = image;
-        _imageCacheLru.AddFirst(path);
-        // Evict oldest if over limit
-        while (_imageCacheLru.Count > MaxCachedImages)
-        {
-            var last = _imageCacheLru.Last!.Value;
-            _imageCacheLru.RemoveLast();
-            _imageCache.Remove(last);
-        }
-    }
-
-    /// <summary>
-    /// Tenta obter ThermalImageData do cache LRU.
-    /// </summary>
-    private bool TryGetCachedImage(string path, out ThermalImageData image)
-    {
-        if (!string.IsNullOrWhiteSpace(path) && _imageCache.TryGetValue(path, out image!))
-        {
-            // Atualiza posição LRU (move para frente)
-            _imageCacheLru.Remove(path);
-            _imageCacheLru.AddFirst(path);
-            return true;
-        }
-        image = null!;
-        return false;
     }
 
     private void UpdateDisplayImage()
@@ -263,7 +151,8 @@ public sealed partial class MainViewModel
         // ══════════════════════════════════════════════════════════════
         // LUT no PaletteScale (EXIF). Sliders fora → Linear.
         // ══════════════════════════════════════════════════════════════
-        // LUT calibrada com mascara de overlay + mediana (cacheada por chave)
+        // LUT calibrada com mascara de overlay + mediana
+        // LUT somente para Iron/Original. Outras paletas: render linear (JSON).
         bool isIronPalette = SelectedPalette == ThermalPalette.Iron || SelectedPalette == ThermalPalette.Original;
         bool useLut = isIronPalette && hasOriginal && originalPixels is not null && ImageViewMode != ImageViewMode.Original && ImageViewMode != ImageViewMode.Visible && _loadedImage?.Temperatures is not null;
 
@@ -272,14 +161,16 @@ public sealed partial class MainViewModel
             var img = _loadedImage!;
             var orig = originalPixels!;
 
-            var lutKey = $"{CurrentImagePath}|{LevelMinC:F2}|{LevelMaxC:F2}";
-            if (_lutCacheKey != lutKey || _temperatureLut == null)
+            if (_temperatureLut == null)
             {
+                double buildMin = LevelMinC;
+                double buildMax = LevelMaxC;
+                if (buildMax <= buildMin) buildMax = buildMin + 0.01;
+
                 _temperatureLut = TemperatureColorLut.Build(
                     img.Temperatures, orig, width, height,
-                    LevelMinC, LevelMaxC, mask: OverlayMask.FlirE8xt, numBins: 256);
-                _lutCacheKey = lutKey;
-                Debug.WriteLine("[TEMP-LUT] Slider=" + LevelMinC.ToString("F1") + "~" + LevelMaxC.ToString("F1") + " bins=256");
+                    buildMin, buildMax, mask: OverlayMask.FlirE8xt, numBins: 256);
+                Debug.WriteLine("[TEMP-LUT] Slider=" + buildMin.ToString("F1") + "~" + buildMax.ToString("F1") + " bins=4096");
             }
 
             for (int i = 3; i < thermalPixels.Length; i += 4)
@@ -445,6 +336,7 @@ public sealed partial class MainViewModel
     {
         var wb = new WriteableBitmap(render.Width, render.Height, 96, 96, PixelFormats.Bgra32, null);
         wb.WritePixels(new System.Windows.Int32Rect(0, 0, render.Width, render.Height), render.BgraPixels, render.Width * 4, 0);
+        // Não congela (Freeze) — sempre usado na UI thread; evita alocação extra
         return wb;
     }
 
@@ -471,10 +363,12 @@ public sealed partial class MainViewModel
                 return thermalPixels.Length > 0;
             }
 
-            // Renderização síncrona (já estamos em thread de background via Task.Run)
+            // Usa renderização síncrona via Task.Run para não bloquear a UI com async-over-sync
             var profile = RenderProfile.FromMetadata(image.Metadata, levelMinC, levelMaxC);
-            thermalPixels = _viewPipeline.RenderRadiometricWithProfileAsync(
-                image, palette.ToString(), profile).GetAwaiter().GetResult();
+            thermalPixels = Task.Run(() => _viewPipeline.RenderRadiometricWithProfileAsync(
+                image,
+                palette.ToString(),
+                profile)).GetAwaiter().GetResult();
             return thermalPixels.Length > 0;
         }
         catch
@@ -485,7 +379,6 @@ public sealed partial class MainViewModel
 
     private bool TryLoadOriginalCameraBgraPixels(int width, int height, out byte[]? pixels)
     {
-        // Cache LRU de JPEG BGRA
         if (_cachedOriginalPath == CurrentImagePath &&
             _cachedOriginalBgra is not null &&
             _cachedOriginalBgra.Length == width * height * 4)
@@ -493,91 +386,43 @@ public sealed partial class MainViewModel
             pixels = _cachedOriginalBgra;
             return true;
         }
-
-        // Tenta cache LRU global
-        var path = CurrentImagePath;
-        if (!string.IsNullOrWhiteSpace(path) && _jpegBgraCache.TryGetValue(path, out var cached))
-        {
-            if (cached.Length == width * height * 4)
-            {
-                _cachedOriginalPath = path;
-                _cachedOriginalBgra = cached;
-                pixels = cached;
-                // Atualiza LRU
-                _jpegBgraLru.Remove(path);
-                _jpegBgraLru.AddFirst(path);
-                return true;
-            }
-        }
-
-        var ok = TryLoadImageBgraPixels(path, width, height, out pixels);
+        var ok = TryLoadImageBgraPixels(CurrentImagePath, width, height, out pixels);
         if (ok && pixels is not null)
         {
-            _cachedOriginalPath = path;
+            _cachedOriginalPath = CurrentImagePath;
             _cachedOriginalBgra = pixels;
-            // Adiciona ao cache LRU de JPEG
-            AddToJpegBgraCache(path!, pixels);
         }
         return ok;
     }
 
     private bool TryLoadVisibleBgraPixels(int width, int height, out byte[]? pixels)
     {
-        if (_cachedVisiblePath == PairedVisibleImagePath &&
-            _cachedVisibleBgra is not null &&
-            _cachedVisibleAlignedSize == (width, height))
-        {
-            pixels = _cachedVisibleBgra;
-            return true;
-        }
-
-        // Tenta cache LRU global para visível
-        var path = PairedVisibleImagePath;
-        if (!string.IsNullOrWhiteSpace(path) && _jpegBgraCache.TryGetValue(path, out var cached))
-        {
-            if (cached.Length == width * height * 4)
+            if (_cachedVisiblePath == PairedVisibleImagePath &&
+                _cachedVisibleBgra is not null &&
+                _cachedVisibleAlignedSize == (width, height))
             {
-                _cachedVisiblePath = path;
-                _cachedVisibleBgra = cached;
-                _cachedVisibleAlignedSize = (width, height);
-                pixels = cached;
-                _jpegBgraLru.Remove(path);
-                _jpegBgraLru.AddFirst(path);
+                pixels = _cachedVisibleBgra;
                 return true;
             }
-        }
 
-        if (TryLoadImageBgraPixelsAtNative(path, out var rawVisiblePixels, out var sourceWidth, out var sourceHeight)
-            && rawVisiblePixels is not null)
+            if (TryLoadImageBgraPixelsAtNative(PairedVisibleImagePath, out var rawVisiblePixels, out var sourceWidth, out var sourceHeight)
+                && rawVisiblePixels is not null)
         {
             pixels = AlignVisibleToThermalFOV(
-                rawVisiblePixels, sourceWidth, sourceHeight,
-                width, height, _loadedImage?.Metadata);
-            _cachedVisiblePath = path;
-            _cachedVisibleBgra = pixels;
-            _cachedVisibleAlignedSize = (width, height);
-            if (path is not null) AddToJpegBgraCache(path, pixels);
+                rawVisiblePixels,
+                sourceWidth,
+                sourceHeight,
+                width,
+                height,
+                _loadedImage?.Metadata);
+                _cachedVisiblePath = PairedVisibleImagePath;
+                _cachedVisibleBgra = pixels;
+                _cachedVisibleAlignedSize = (width, height);
             return true;
         }
 
         pixels = null;
         return false;
-    }
-
-    /// <summary>
-    /// Adiciona pixels BGRA ao cache LRU de JPEG. Mantém no máximo MaxCachedJpegBgra entradas.
-    /// </summary>
-    private void AddToJpegBgraCache(string path, byte[] pixels)
-    {
-        _jpegBgraLru.Remove(path);
-        _jpegBgraCache[path] = pixels;
-        _jpegBgraLru.AddFirst(path);
-        while (_jpegBgraLru.Count > MaxCachedJpegBgra)
-        {
-            var last = _jpegBgraLru.Last!.Value;
-            _jpegBgraLru.RemoveLast();
-            _jpegBgraCache.Remove(last);
-        }
     }
 
     private static bool TryLoadImageBgraPixelsAtNative(string? imagePath, out byte[]? pixels, out int width, out int height)

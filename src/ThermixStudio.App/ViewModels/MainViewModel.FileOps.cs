@@ -92,18 +92,7 @@ public sealed partial class MainViewModel
 
         try
         {
-            // Verifica cache LRU antes de recarregar do disco
-            if (!TryGetCachedImage(thermogram.FilePath, out var cachedImage))
-            {
-                _loadedImage = await _thermalService.LoadImageAsync(thermogram.FilePath);
-                if (_loadedImage is not null)
-                    CacheLoadedImage(thermogram.FilePath, _loadedImage);
-            }
-            else
-            {
-                _loadedImage = cachedImage;
-                Debug.WriteLine($"[CACHE] Hit: {Path.GetFileName(thermogram.FilePath)}");
-            }
+            _loadedImage = await _thermalService.LoadImageAsync(thermogram.FilePath);
         }
         catch
         {

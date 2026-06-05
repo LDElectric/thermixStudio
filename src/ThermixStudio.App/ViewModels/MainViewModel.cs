@@ -69,13 +69,6 @@ public sealed partial class MainViewModel : ObservableObject
     private global::ThermixStudio.Core.ImageViewMode? _metadataDetectedMode;
     private global::ThermixStudio.Core.ImageViewMode? _inferredCaptureMode;
 
-        // ── Cache LRU de ThermalImageData (evita reload completo ao alternar termogramas) ──
-        private const int MaxCachedImages = 5;
-        private readonly Dictionary<string, ThermalImageData> _imageCache = new();
-        private readonly LinkedList<string> _imageCacheLru = new();
-        // ── Cache LRU de pixels renderizados (evita re-render ao voltar ao termograma) ──
-        private readonly Dictionary<(string path, ThermalPalette palette, double min, double max, ImageViewMode mode), byte[]> _renderCache = new();
-
         // ── Cancellation: cancela carga anterior quando usuário troca de termograma ──
         private CancellationTokenSource? _loadCts;
         // ── Debounce: evita re-render a cada tick de slider ──
