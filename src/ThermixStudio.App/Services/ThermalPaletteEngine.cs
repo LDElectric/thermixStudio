@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -19,6 +21,8 @@ namespace ThermixStudio.App.Services;
 public sealed class ThermalPaletteEngine : IThermalPaletteEngine
 {
     private readonly Dictionary<string, ThermalPaletteLutData> _lutCache = new();
+    // Cache de lookup reverso O(1) para ProcessSmartHD (quantização 5-bit RGB → índice LUT)
+    private readonly Dictionary<string, Dictionary<uint, int>> _reverseLutCache = new();
     private bool _lutsLoaded;
 
     public async Task<ThermalPaletteLutData?> LoadLutAsync(string paletteName, CancellationToken cancellationToken = default)
@@ -106,6 +110,13 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         if (!_lutCache.TryGetValue(targetName, out var tgtLut))
             tgtLut = _lutCache["Iron"];
 
+        // Constrói/g recupera lookup reverso O(1) para a LUT fonte
+        if (!_reverseLutCache.TryGetValue(srcName, out var reverseLut))
+        {
+            reverseLut = BuildReverseLut(srcLut);
+            _reverseLutCache[srcName] = reverseLut;
+        }
+
         int w = srcImg.Width;
         int h = srcImg.Height;
         var dstImg = new Bitmap(w, h, PixelFormat.Format32bppArgb);
@@ -113,63 +124,101 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         var sData = srcImg.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         var dData = dstImg.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-        byte[] sBuf = new byte[sData.Stride * h];
-        byte[] dBuf = new byte[dData.Stride * h];
-        Marshal.Copy(sData.Scan0, sBuf, 0, sBuf.Length);
-
-        for (int y = 0; y < h; y++)
+        int bufSize = sData.Stride * h;
+        byte[] sBuf = ArrayPool<byte>.Shared.Rent(bufSize);
+        byte[] dBuf = ArrayPool<byte>.Shared.Rent(bufSize);
+        try
         {
-            for (int x = 0; x < w; x++)
+            Marshal.Copy(sData.Scan0, sBuf, 0, bufSize);
+
+            int tgtCount = tgtLut.Rgb.Count;
+            int tgtMax = tgtCount - 1;
+            int srcMax = srcLut.Rgb.Count - 1;
+
+            for (int y = 0; y < h; y++)
             {
-                int idx = (y * sData.Stride) + (x * 4);
-                byte b = sBuf[idx], g = sBuf[idx + 1], r = sBuf[idx + 2], a = sBuf[idx + 3];
-
-                // Remapeamento de cor puro (sem preservação de UI aqui, 
-                // pois ela deve ser feita no final do pipeline pelo ThermalModeEngine.OverlayCameraUI)
-                
-                // Find best match in source LUT
-                int bestIdx = 0;
-                int minDist = int.MaxValue;
-
-                for (int k = 0; k < srcLut.Rgb.Count; k += 4)
+                for (int x = 0; x < w; x++)
                 {
-                    var col = srcLut.Rgb[k];
-                    int dr = r - col[0];
-                    int dg = g - col[1];
-                    int db = b - col[2];
-                    int dist = dr * dr + dg * dg + db * db;
-                    if (dist < minDist) { minDist = dist; bestIdx = k; }
+                    int idx = (y * sData.Stride) + (x * 4);
+                    byte b = sBuf[idx], g = sBuf[idx + 1], r = sBuf[idx + 2];
+
+                    // Lookup O(1) via quantização 5-bit (32 níveis por canal)
+                    uint key = ((uint)(r >> 3) << 10) | ((uint)(g >> 3) << 5) | (uint)(b >> 3);
+                    int bestIdx = reverseLut.TryGetValue(key, out var lutIdx) ? lutIdx : 0;
+
+                    // Refinamento local (±2 vizinhos na LUT) para precisão
+                    int start = Math.Max(0, bestIdx - 2);
+                    int end = Math.Min(srcLut.Rgb.Count, bestIdx + 3);
+                    int minDist = int.MaxValue;
+                    for (int k = start; k < end; k++)
+                    {
+                        var col = srcLut.Rgb[k];
+                        int dr = r - col[0];
+                        int dg = g - col[1];
+                        int db = b - col[2];
+                        int dist = dr * dr + dg * dg + db * db;
+                        if (dist < minDist) { minDist = dist; bestIdx = k; }
+                    }
+
+                    // Map to target palette via ratio
+                    float ratio = (float)bestIdx / srcMax;
+                    var nc = tgtLut.Rgb[(int)(ratio * tgtMax)];
+
+                    dBuf[idx] = (byte)nc[2];     // B
+                    dBuf[idx + 1] = (byte)nc[1]; // G
+                    dBuf[idx + 2] = (byte)nc[0]; // R
+                    dBuf[idx + 3] = 255;
                 }
-
-                // Refine with neighbors
-                int start = Math.Max(0, bestIdx - 4);
-                int end = Math.Min(srcLut.Rgb.Count, bestIdx + 5);
-                for (int k = start; k < end; k++)
-                {
-                    var col = srcLut.Rgb[k];
-                    int dr = r - col[0];
-                    int dg = g - col[1];
-                    int db = b - col[2];
-                    int dist = dr * dr + dg * dg + db * db;
-                    if (dist < minDist) { minDist = dist; bestIdx = k; }
-                }
-
-                // Map to target palette via ratio
-                float ratio = (float)bestIdx / (srcLut.Rgb.Count - 1);
-                var nc = tgtLut.Rgb[(int)(ratio * (tgtLut.Rgb.Count - 1))];
-
-                dBuf[idx] = (byte)nc[2];     // B
-                dBuf[idx + 1] = (byte)nc[1]; // G
-                dBuf[idx + 2] = (byte)nc[0]; // R
-                dBuf[idx + 3] = 255;
             }
-        }
 
-        Marshal.Copy(dBuf, 0, dData.Scan0, dBuf.Length);
+            Marshal.Copy(dBuf, 0, dData.Scan0, bufSize);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(sBuf);
+            ArrayPool<byte>.Shared.Return(dBuf);
+        }
         srcImg.UnlockBits(sData);
         dstImg.UnlockBits(dData);
 
         return dstImg;
+    }
+
+    /// <summary>
+    /// Constrói lookup reverso O(1): RGB quantizado (5 bits/canal) → índice na LUT mais próximo.
+    /// </summary>
+    private static Dictionary<uint, int> BuildReverseLut(ThermalPaletteLutData lut)
+    {
+        var reverse = new Dictionary<uint, int>(32768); // 32^3 = 32768 combinações
+        int count = lut.Rgb.Count;
+
+        // Para cada bucket quantizado, encontra o índice da cor mais próxima na LUT
+        for (int r5 = 0; r5 < 32; r5++)
+        {
+            byte r = (byte)((r5 << 3) | (r5 >> 2)); // reconstrói ~8-bit do 5-bit
+            for (int g5 = 0; g5 < 32; g5++)
+            {
+                byte g = (byte)((g5 << 3) | (g5 >> 2));
+                for (int b5 = 0; b5 < 32; b5++)
+                {
+                    byte b = (byte)((b5 << 3) | (b5 >> 2));
+                    uint key = ((uint)r5 << 10) | ((uint)g5 << 5) | (uint)b5;
+                    int bestIdx = 0;
+                    int minDist = int.MaxValue;
+                    for (int i = 0; i < count; i++)
+                    {
+                        var col = lut.Rgb[i];
+                        int dr = r - col[0];
+                        int dg = g - col[1];
+                        int db = b - col[2];
+                        int dist = dr * dr + dg * dg + db * db;
+                        if (dist < minDist) { minDist = dist; bestIdx = i; }
+                    }
+                    reverse[key] = bestIdx;
+                }
+            }
+        }
+        return reverse;
     }
 
     [Obsolete("Use RenderWithProfileAsync com RenderProfile.FromMetadata()")]

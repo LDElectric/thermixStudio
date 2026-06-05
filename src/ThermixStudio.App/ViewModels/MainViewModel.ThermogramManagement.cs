@@ -133,7 +133,7 @@ public sealed partial class MainViewModel
         AutoScaleEnabled = true;
         LevelMinC = min;
         LevelMaxC = max;
-        UpdateDisplayImage();
+        TriggerRenderDebounced(delayMs: 0);
         await Task.CompletedTask;
     }
 
@@ -165,7 +165,7 @@ public sealed partial class MainViewModel
         AutoScaleEnabled = false;
         LevelMinC = min;
         LevelMaxC = max;
-        UpdateDisplayImage();
+        TriggerRenderDebounced(delayMs: 0);
         await PersistSelectedThermogramViewStateAsync();
     }
 

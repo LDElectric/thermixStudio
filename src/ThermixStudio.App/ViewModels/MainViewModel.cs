@@ -69,10 +69,19 @@ public sealed partial class MainViewModel : ObservableObject
     private global::ThermixStudio.Core.ImageViewMode? _metadataDetectedMode;
     private global::ThermixStudio.Core.ImageViewMode? _inferredCaptureMode;
 
+        // ── Cache LRU de ThermalImageData (evita reload completo ao alternar termogramas) ──
+        private const int MaxCachedImages = 5;
+        private readonly Dictionary<string, ThermalImageData> _imageCache = new();
+        private readonly LinkedList<string> _imageCacheLru = new();
+        // ── Cache LRU de pixels renderizados (evita re-render ao voltar ao termograma) ──
+        private readonly Dictionary<(string path, ThermalPalette palette, double min, double max, ImageViewMode mode), byte[]> _renderCache = new();
+
         // ── Cancellation: cancela carga anterior quando usuário troca de termograma ──
         private CancellationTokenSource? _loadCts;
         // ── Debounce: evita re-render a cada tick de slider ──
         private CancellationTokenSource? _renderDebounceCts;
+        // ── Cancellation for async render ──
+        private CancellationTokenSource? _renderCts;
 
         private static readonly string _debugLogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
@@ -413,7 +422,7 @@ public sealed partial class MainViewModel : ObservableObject
         /// <summary>
         /// Agenda um re-render com debounce para evitar re-renderizações excessivas
         /// durante arrasto de sliders. <paramref name="delayMs"/>=0 renderiza no próximo
-        /// ciclo do dispatcher sem Delay.
+        /// ciclo do dispatcher sem Delay. Executa em background thread.
         /// </summary>
         private void TriggerRenderDebounced(int delayMs = 70)
         {
@@ -423,14 +432,18 @@ public sealed partial class MainViewModel : ObservableObject
 
             if (delayMs <= 0)
             {
-                // Renderiza no próximo ciclo do dispatcher (sem Task.Run)
+                // Renderiza via BeginInvoke mas delega para Task.Run (não bloqueia UI)
                 System.Windows.Application.Current.Dispatcher.BeginInvoke(
                     System.Windows.Threading.DispatcherPriority.Background,
                     new Action(() =>
                     {
                         if (!token.IsCancellationRequested)
                         {
-                            UpdateDisplayImage();
+                            _renderCts?.Cancel();
+                            _renderCts = new CancellationTokenSource();
+                            var renderToken = CancellationTokenSource.CreateLinkedTokenSource(
+                                token, _renderCts.Token).Token;
+                            _ = UpdateDisplayImageAsync(renderToken);
                         }
                     }));
                 return;
@@ -445,7 +458,11 @@ public sealed partial class MainViewModel : ObservableObject
                     ((System.Windows.Threading.DispatcherTimer)s!).Stop();
                     if (!token.IsCancellationRequested)
                     {
-                        UpdateDisplayImage();
+                        _renderCts?.Cancel();
+                        _renderCts = new CancellationTokenSource();
+                        var renderToken = CancellationTokenSource.CreateLinkedTokenSource(
+                            token, _renderCts.Token).Token;
+                        _ = UpdateDisplayImageAsync(renderToken);
                         _ = PersistSelectedThermogramViewStateAsync();
                     }
                 },

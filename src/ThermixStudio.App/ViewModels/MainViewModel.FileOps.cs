@@ -92,7 +92,18 @@ public sealed partial class MainViewModel
 
         try
         {
-            _loadedImage = await _thermalService.LoadImageAsync(thermogram.FilePath);
+            // Verifica cache LRU antes de recarregar do disco
+            if (!TryGetCachedImage(thermogram.FilePath, out var cachedImage))
+            {
+                _loadedImage = await _thermalService.LoadImageAsync(thermogram.FilePath);
+                if (_loadedImage is not null)
+                    CacheLoadedImage(thermogram.FilePath, _loadedImage);
+            }
+            else
+            {
+                _loadedImage = cachedImage;
+                Debug.WriteLine($"[CACHE] Hit: {Path.GetFileName(thermogram.FilePath)}");
+            }
         }
         catch
         {
@@ -226,7 +237,10 @@ public sealed partial class MainViewModel
 
         if (cancellationToken.IsCancellationRequested) { _loadingThermogram = false; return; }
 
-        UpdateDisplayImage();
+        // Dispara renderização em background (fire-and-forget), medições carregam em paralelo
+        _renderCts?.Cancel();
+        _renderCts = new CancellationTokenSource();
+        _ = UpdateDisplayImageAsync(_renderCts.Token);
         OnPropertyChanged(nameof(ImagePixelWidth));
         OnPropertyChanged(nameof(ImagePixelHeight));
 
@@ -236,13 +250,22 @@ public sealed partial class MainViewModel
             await _dataService.UpdateThermogramAsync(thermogram);
         }
 
-        foreach (var m in await _dataService.GetMeasurementsByThermogramAsync(thermogram.Id))
+        // Carrega medições e tendências em background (paralelo com render)
+        var loadMeasurementsTask = Task.Run(async () =>
+        {
+            var measurements = await _dataService.GetMeasurementsByThermogramAsync(thermogram.Id);
+            var trend = await _dataService.GetThermogramTrendAsync(thermogram.Id);
+            return (measurements, trend);
+        });
+
+        var (loadedMeasurements, loadedTrend) = await loadMeasurementsTask;
+
+        foreach (var m in loadedMeasurements)
         {
             Measurements.Add(m);
         }
 
-        var trend = await _dataService.GetThermogramTrendAsync(thermogram.Id);
-        RefreshTrendPlot(trend);
+        RefreshTrendPlot(loadedTrend);
 
         _loadingThermogram = false;
         StatusMessage = $"Termograma: {Path.GetFileName(thermogram.FilePath)} | {Measurements.Count} medicao(oes)";
