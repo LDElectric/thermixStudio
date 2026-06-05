@@ -237,10 +237,7 @@ public sealed partial class MainViewModel
 
         if (cancellationToken.IsCancellationRequested) { _loadingThermogram = false; return; }
 
-        // Dispara renderização em background (fire-and-forget), medições carregam em paralelo
-        _renderCts?.Cancel();
-        _renderCts = new CancellationTokenSource();
-        _ = UpdateDisplayImageAsync(_renderCts.Token);
+        UpdateDisplayImage();
         OnPropertyChanged(nameof(ImagePixelWidth));
         OnPropertyChanged(nameof(ImagePixelHeight));
 
@@ -250,22 +247,13 @@ public sealed partial class MainViewModel
             await _dataService.UpdateThermogramAsync(thermogram);
         }
 
-        // Carrega medições e tendências em background (paralelo com render)
-        var loadMeasurementsTask = Task.Run(async () =>
-        {
-            var measurements = await _dataService.GetMeasurementsByThermogramAsync(thermogram.Id);
-            var trend = await _dataService.GetThermogramTrendAsync(thermogram.Id);
-            return (measurements, trend);
-        });
-
-        var (loadedMeasurements, loadedTrend) = await loadMeasurementsTask;
-
-        foreach (var m in loadedMeasurements)
+        foreach (var m in await _dataService.GetMeasurementsByThermogramAsync(thermogram.Id))
         {
             Measurements.Add(m);
         }
 
-        RefreshTrendPlot(loadedTrend);
+        var trend = await _dataService.GetThermogramTrendAsync(thermogram.Id);
+        RefreshTrendPlot(trend);
 
         _loadingThermogram = false;
         StatusMessage = $"Termograma: {Path.GetFileName(thermogram.FilePath)} | {Measurements.Count} medicao(oes)";

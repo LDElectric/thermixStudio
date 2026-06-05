@@ -80,8 +80,6 @@ public sealed partial class MainViewModel : ObservableObject
         private CancellationTokenSource? _loadCts;
         // ── Debounce: evita re-render a cada tick de slider ──
         private CancellationTokenSource? _renderDebounceCts;
-        // ── Cancellation for async render ──
-        private CancellationTokenSource? _renderCts;
 
         private static readonly string _debugLogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
@@ -422,7 +420,7 @@ public sealed partial class MainViewModel : ObservableObject
         /// <summary>
         /// Agenda um re-render com debounce para evitar re-renderizações excessivas
         /// durante arrasto de sliders. <paramref name="delayMs"/>=0 renderiza no próximo
-        /// ciclo do dispatcher sem Delay. Executa em background thread.
+        /// ciclo do dispatcher sem Delay.
         /// </summary>
         private void TriggerRenderDebounced(int delayMs = 70)
         {
@@ -432,18 +430,14 @@ public sealed partial class MainViewModel : ObservableObject
 
             if (delayMs <= 0)
             {
-                // Renderiza via BeginInvoke mas delega para Task.Run (não bloqueia UI)
+                // Renderiza no próximo ciclo do dispatcher (sem Task.Run)
                 System.Windows.Application.Current.Dispatcher.BeginInvoke(
                     System.Windows.Threading.DispatcherPriority.Background,
                     new Action(() =>
                     {
                         if (!token.IsCancellationRequested)
                         {
-                            _renderCts?.Cancel();
-                            _renderCts = new CancellationTokenSource();
-                            var renderToken = CancellationTokenSource.CreateLinkedTokenSource(
-                                token, _renderCts.Token).Token;
-                            _ = UpdateDisplayImageAsync(renderToken);
+                            UpdateDisplayImage();
                         }
                     }));
                 return;
@@ -458,11 +452,7 @@ public sealed partial class MainViewModel : ObservableObject
                     ((System.Windows.Threading.DispatcherTimer)s!).Stop();
                     if (!token.IsCancellationRequested)
                     {
-                        _renderCts?.Cancel();
-                        _renderCts = new CancellationTokenSource();
-                        var renderToken = CancellationTokenSource.CreateLinkedTokenSource(
-                            token, _renderCts.Token).Token;
-                        _ = UpdateDisplayImageAsync(renderToken);
+                        UpdateDisplayImage();
                         _ = PersistSelectedThermogramViewStateAsync();
                     }
                 },

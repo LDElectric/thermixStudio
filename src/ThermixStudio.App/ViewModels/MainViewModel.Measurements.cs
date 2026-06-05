@@ -214,8 +214,8 @@ public sealed partial class MainViewModel
     private async Task ActivateLineToolAsync() { ActiveTool = AnalysisTool.Line; StatusMessage = "Ferramenta Seta (ilustracao) ativa. Clique e arraste para apontar elementos."; await Task.CompletedTask; }
     private async Task ActivateCircleToolAsync() { ActiveTool = AnalysisTool.Circle; StatusMessage = "Ferramenta Circulo (ilustracao) ativa. Clique e arraste para destacar elementos."; await Task.CompletedTask; }
     private async Task ActivateAutoAdjustRegionToolAsync() { ActiveTool = AnalysisTool.AutoAdjustRegion; StatusMessage = "Auto-adjust region ativa. Clique e arraste para definir a regiao de ajuste automatico."; await Task.CompletedTask; }
-    private async Task ClearAutoAdjustRegionAsync() { _autoAdjustRegion = null; TriggerRenderDebounced(delayMs: 0); StatusMessage = "Regiao de auto-ajuste removida."; await Task.CompletedTask; }
+    private async Task ClearAutoAdjustRegionAsync() { _autoAdjustRegion = null; UpdateDisplayImage(); StatusMessage = "Regiao de auto-ajuste removida."; await Task.CompletedTask; }
     private async Task ApplyHumidityPresetAsync() { SelectedIsothermMode = IsothermMode.Humidity; HumidityRelativeLimit = 70; StatusMessage = "Preset de isoterma de umidade aplicado (RH limite 70%)."; await Task.CompletedTask; }
     private async Task ApplyInsulationPresetAsync() { SelectedIsothermMode = IsothermMode.Insulation; InsulationIndoorC = 22; InsulationOutdoorC = 12; InsulationThermalIndex = 0.70; StatusMessage = "Preset de isoterma de insulação aplicado (22/12 C, índice 0.70)."; await Task.CompletedTask; }
-    public Task SetAutoAdjustRegionNormalizedAsync(double startX, double startY, double endX, double endY) { _autoAdjustRegion = (startX, startY, endX, endY); TriggerRenderDebounced(delayMs: 0); StatusMessage = "Regiao de auto-ajuste aplicada."; return Task.CompletedTask; }
+    public Task SetAutoAdjustRegionNormalizedAsync(double startX, double startY, double endX, double endY) { _autoAdjustRegion = (startX, startY, endX, endY); UpdateDisplayImage(); StatusMessage = "Regiao de auto-ajuste aplicada."; return Task.CompletedTask; }
 }
