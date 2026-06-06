@@ -346,7 +346,6 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnLevelMinCChanged(double value)
     {
-        _temperatureLut = null;
         if (_loadingThermogram || AutoScaleEnabled) return;
         if (value >= LevelMaxC)
         {
@@ -357,7 +356,6 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnLevelMaxCChanged(double value)
     {
-        _temperatureLut = null;
         if (_loadingThermogram || AutoScaleEnabled) return;
         if (value <= LevelMinC)
         {

@@ -1,3 +1,5 @@
+using ThermixStudio.Core.Thermal;
+
 namespace ThermixStudio.Core;
 
 /// <summary>
@@ -31,6 +33,18 @@ public sealed class ThermalImageData
     public string SourceFormat { get; set; } = "Unknown";
     public bool IsRadiometricLikely { get; set; }
     public RadiometricMetadata Metadata { get; set; } = new();
+
+    /// <summary>
+    /// LUT temperatura→cor calibrada pelo JPEG original (Hypothesis C).
+    /// Quando disponível, substitui o pipeline de paleta tradicional.
+    /// </summary>
+    public TemperatureColorLut? CalibratedLut { get; set; }
+
+    /// <summary>
+    /// Paleta normalizada [0→1] extraída da LUT (256 cores RGB).
+    /// Permite sliders dinâmicos mantendo as cores fiéis ao JPEG.
+    /// </summary>
+    public byte[]? CalibratedPalette { get; set; }
 }
 
 public sealed class RadiometricMetadata

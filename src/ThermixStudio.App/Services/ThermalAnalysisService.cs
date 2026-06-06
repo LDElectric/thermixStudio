@@ -4,6 +4,7 @@ using OpenCvSharp;
 using ThermixStudio.App.Services.Thermal;
 using ThermixStudio.Core;
 using ThermixStudio.Core.Services;
+using ThermixStudio.Core.Thermal;
 
 namespace ThermixStudio.App.Services;
 
@@ -116,6 +117,50 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
                 data.Metadata.Notes = string.IsNullOrWhiteSpace(data.Metadata.Notes)
                     ? "Imagem de 8 bits; temperatura estimada por intensidade."
                     : data.Metadata.Notes;
+            }
+
+            // Hypothesis C: construir LUT do JPEG original se for FLIR radiométrico
+            if (data.IsRadiometricLikely &&
+                string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) &&
+                data.Width > 0 && data.Height > 0)
+            {
+                try
+                {
+                    using var jpegBmp = new System.Drawing.Bitmap(imagePath);
+                    if (jpegBmp.Width == data.Width && jpegBmp.Height == data.Height)
+                    {
+                        var jpegRect = new System.Drawing.Rectangle(0, 0, data.Width, data.Height);
+                        var jpegData = jpegBmp.LockBits(jpegRect,
+                            System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        var jpegPixels = new byte[jpegData.Stride * data.Height];
+                        System.Runtime.InteropServices.Marshal.Copy(jpegData.Scan0, jpegPixels, 0, jpegPixels.Length);
+                        jpegBmp.UnlockBits(jpegData);
+
+                        // LUT cobre TODO o range Planck da cena (não só display)
+                        // Isso dá ~0.008°C/bin e elimina banding em gradientes suaves
+                        double minC = data.Temperatures.Cast<double>().Min();
+                        double maxC = data.Temperatures.Cast<double>().Max();
+                        if (maxC <= minC) maxC = minC + 0.01;
+
+                        // Range de amostragem: só pixels DENTRO do display
+                        // (fora disso o JPEG tem preto/branco = clip da câmera)
+                        double? sampMin = data.Metadata.PaletteScaleMinC;
+                        double? sampMax = data.Metadata.PaletteScaleMaxC;
+
+                        data.CalibratedLut = TemperatureColorLut.Build(
+                            data.Temperatures, jpegPixels,
+                            data.Width, data.Height,
+                            minC, maxC, numBins: 4096,
+                            samplingMinC: sampMin, samplingMaxC: sampMax);
+                    }
+                }
+                catch
+                {
+                    // LUT é otimização; falha silenciosa não quebra o pipeline
+                    data.CalibratedLut = null;
+                    data.CalibratedPalette = null;
+                }
             }
 
             return data;

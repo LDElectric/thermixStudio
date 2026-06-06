@@ -88,20 +88,37 @@ public sealed class ThermalViewPipeline : IThermalViewPipeline
 
     /// <summary>
     /// Renderização radiométrica com <see cref="RenderProfile"/> por imagem.
+    /// Se <see cref="ThermalImageData.CalibratedLut"/> estiver disponível,
+    /// aplica Histogram Matching (Hypothesis C) após o render da paleta.
     /// </summary>
-    public Task<byte[]> RenderRadiometricWithProfileAsync(
+    public async Task<byte[]> RenderRadiometricWithProfileAsync(
         ThermalImageData image,
         string paletteName,
         RenderProfile profile,
         CancellationToken cancellationToken = default)
-        => _paletteEngine.RenderWithProfileAsync(
+    {
+        var pixels = await _paletteEngine.RenderWithProfileAsync(
             image.Temperatures,
             image.Width,
             image.Height,
             paletteName,
             profile,
             image.Metadata,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+
+        // Hypothesis C: LUT com range Planck completo + interpolação 4096 bins
+        // Apply() usa o range atual dos sliders, interpolando linearmente
+        // entre os 4096 bins → gradientes suaves sem banding
+        if (image.CalibratedLut is not null)
+        {
+            double sliderMin = profile.LevelMinC;
+            double sliderMax = profile.LevelMaxC;
+            image.CalibratedLut.Apply(image.Temperatures, pixels,
+                image.Width, image.Height, sliderMin, sliderMax);
+        }
+
+        return pixels;
+    }
 
     public byte[] RemapCapturedFrame(Bitmap originalFrame, string sourcePaletteName, string targetPaletteName)
     {

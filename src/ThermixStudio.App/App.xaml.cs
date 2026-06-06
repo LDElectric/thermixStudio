@@ -122,9 +122,10 @@ var dataService = scope.ServiceProvider.GetRequiredService<IAppDataService>();
 				double maxC = meta.PaletteScaleMaxC ?? img.Temperatures.Cast<double>().Max();
 				if (maxC <= minC) maxC = minC + 0.01;
 
-				var profile = RenderProfile.FromMetadata(meta, minC, maxC);
-				var rendered = await engine.RenderWithProfileAsync(img.Temperatures, img.Width, img.Height, "Iron", profile, meta);
+var profile = RenderProfile.FromMetadata(meta, minC, maxC);
 
+				// Hypothesis C: Histogram Matching — LUT direta (bypass da paleta)
+				// Aprende cores do JPEG e aplica como mapeamento temperatura→cor
 				using var origBmp = new System.Drawing.Bitmap(jpg);
 				var rect = new System.Drawing.Rectangle(0, 0, img.Width, img.Height);
 				var origData = origBmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -132,8 +133,24 @@ var dataService = scope.ServiceProvider.GetRequiredService<IAppDataService>();
 				System.Runtime.InteropServices.Marshal.Copy(origData.Scan0, origPixels, 0, origPixels.Length);
 				origBmp.UnlockBits(origData);
 
-				var lut = TemperatureColorLut.Build(img.Temperatures, origPixels, img.Width, img.Height, minC, maxC, numBins: 1024);
+				// Build LUT from JPEG ground truth (display range, 4096 bins)
+				var lut = TemperatureColorLut.Build(img.Temperatures, origPixels, img.Width, img.Height, minC, maxC, numBins: 4096);
+
+				// Allocate blank output and apply LUT directly (skip palette render)
+				var rendered = new byte[img.Width * img.Height * 4];
 				lut.Apply(img.Temperatures, rendered, img.Width, img.Height, minC, maxC);
+
+				// Save LUT render for SSIM comparison
+				if (name is "FLIR0192" or "2")
+				{
+					using var bmpSsim = new System.Drawing.Bitmap(img.Width, img.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+					var dataSsim = bmpSsim.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+					System.Runtime.InteropServices.Marshal.Copy(rendered, 0, dataSsim.Scan0, rendered.Length);
+					bmpSsim.UnlockBits(dataSsim);
+					var ssimPath = Path.Combine(root, $"{name}_analise.jpg");
+					bmpSsim.Save(ssimPath, System.Drawing.Imaging.ImageFormat.Jpeg);
+					Console.WriteLine($"  LUT render: {ssimPath}");
+				}
 
 				using var bmp = new System.Drawing.Bitmap(img.Width, img.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
 				var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);

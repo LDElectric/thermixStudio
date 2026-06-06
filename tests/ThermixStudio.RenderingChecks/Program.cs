@@ -17,6 +17,16 @@ if (args.Contains("--batch"))
     return;
 }
 
+// ─── MODO CALIBRATE: auto-tune render params for a specific image ──────
+if (args.Contains("--calibrate"))
+{
+    var targetName = args.Length > 1 ? args[1] : "FLIR0192";
+    Console.WriteLine($"=== CALIBRATE: Auto-tuning {targetName} ===");
+    await CalibrateAsync(root, outputDir, targetName);
+    Console.WriteLine("CALIBRATE concluido.");
+    return;
+}
+
 // ─── Teste de hipótese: prefixo "máx." / "min." / "~" ──────────────────
 Console.WriteLine("\n=== Teste de hipótese dos prefixos ===");
 await TestPrefixHypothesis(root, "FLIR0058"); // sem assertiva: matrix excede a escala EXIF em ambos lados
@@ -338,6 +348,160 @@ static async Task BatchCalibrateAsync(string root, string outputDir)
     }
 
     Console.WriteLine($"\nBatch concluido: {ok} OK, {fail} falhas. Output: {outputDir}");
+}
+
+// ─── CALIBRATE: auto-tune render parameters for a specific image ───────
+
+static async Task CalibrateAsync(string root, string outputDir, string name)
+{
+    var jpgPath = Path.Combine(root, $"{name}.jpg");
+    if (!File.Exists(jpgPath))
+    {
+        Console.WriteLine($"  Arquivo nao encontrado: {jpgPath}");
+        return;
+    }
+
+    var exifTool = new ExifToolService();
+    var analysis = new ThermalAnalysisService(exifTool);
+    var engine = new ThermalPaletteEngine();
+    var detector = new VisualScaleDetector();
+
+    Console.WriteLine($"  Carregando {name}.jpg...");
+    var img = await analysis.LoadImageAsync(jpgPath);
+    var meta = img.Metadata;
+
+    // Load original JPEG pixels for comparison
+    using var refBmp = new Bitmap(jpgPath);
+    var refData = refBmp.LockBits(
+        new Rectangle(0, 0, img.Width, img.Height),
+        ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+    var refPixels = new byte[refData.Stride * img.Height];
+    System.Runtime.InteropServices.Marshal.Copy(refData.Scan0, refPixels, 0, refPixels.Length);
+    refBmp.UnlockBits(refData);
+
+    // Detect VisualScale
+    var vs = await detector.DetectAsync(jpgPath, img);
+    double vsMin = vs.Success ? vs.MinC!.Value : 21.9;
+    double vsMax = vs.Success ? vs.MaxC!.Value : 43.9;
+    Console.WriteLine($"  VisualScale: {vsMin:F1} – {vsMax:F1} C (source={vs.Source})");
+
+    double sceneMin = img.Temperatures.Cast<double>().Min();
+    double sceneMax = img.Temperatures.Cast<double>().Max();
+    Console.WriteLine($"  Scene range: {sceneMin:F1} – {sceneMax:F1} C");
+
+    // Test grid
+    double[] minOffsets = { -2.0, -1.0, -0.5, 0.0, +0.5, +1.0, +2.0 };
+    double[] maxOffsets = { -2.0, -1.0, -0.5, 0.0, +0.5, +1.0, +2.0 };
+    bool[] stretchOptions = { false, true };
+    bool[] wbOptions = { false, true };
+
+    double bestRmse = double.MaxValue;
+    double bestMin = vsMin, bestMax = vsMax;
+    bool bestStretch = false, bestWb = false;
+    byte[]? bestRender = null;
+
+    int total = minOffsets.Length * maxOffsets.Length * stretchOptions.Length * wbOptions.Length;
+    int tested = 0;
+
+    Console.WriteLine($"  Testando {total} combinacoes...");
+
+    foreach (var minOff in minOffsets)
+    foreach (var maxOff in maxOffsets)
+    {
+        double testMin = vsMin + minOff;
+        double testMax = vsMax + maxOff;
+        if (testMax <= testMin + 1.0) continue;
+
+        foreach (var stretch in stretchOptions)
+        foreach (var wb in wbOptions)
+        {
+            tested++;
+            try
+            {
+                var profile = new RenderProfile
+                {
+                    LevelMinC = testMin,
+                    LevelMaxC = testMax,
+                    ApplyPlanckTransform = meta.PlanckR1 is > 0 && meta.PlanckR2 is > 0 && meta.PlanckB is > 0,
+                    ApplyPaletteStretch = stretch,
+                    StretchBlend = (meta.PaletteStretch ?? 0) * 0.25,
+                    ApplyWhiteBoost = wb,
+                    WhiteBoostThreshold = 0.94,
+                    WhiteBoostIntensity = 0.015,
+                    UseLimitColors = false,
+                    ApplyDde = false
+                };
+
+                var rendered = await engine.RenderWithProfileAsync(
+                    img.Temperatures, img.Width, img.Height,
+                    "Iron", profile, meta);
+
+                double rmse = ComputeMaskedRmse(refPixels, rendered, img.Width, img.Height);
+
+                if (rmse < bestRmse)
+                {
+                    bestRmse = rmse;
+                    bestMin = testMin;
+                    bestMax = testMax;
+                    bestStretch = stretch;
+                    bestWb = wb;
+                    bestRender = rendered;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"    ERRO: min={testMin:F1} max={testMax:F1} s={stretch} wb={wb}: {ex.Message}");
+            }
+        }
+    }
+
+    // Save best render
+    if (bestRender is not null)
+    {
+        using var bmp = new Bitmap(img.Width, img.Height, PixelFormat.Format32bppArgb);
+        var data = bmp.LockBits(new Rectangle(0, 0, img.Width, img.Height),
+            ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        System.Runtime.InteropServices.Marshal.Copy(bestRender, 0, data.Scan0, bestRender.Length);
+        bmp.UnlockBits(data);
+
+        var outPath = Path.Combine(outputDir, $"{name}_calibrated.jpg");
+        bmp.Save(outPath, ImageFormat.Jpeg);
+        Console.WriteLine($"  BEST: min={bestMin:F1} max={bestMax:F1} stretch={bestStretch} wb={bestWb} RMSE={bestRmse:F2}");
+        Console.WriteLine($"  Salvo: {outPath}");
+    }
+
+    Console.WriteLine($"  Testadas {tested} combinacoes.");
+}
+
+static double ComputeMaskedRmse(byte[] refPixels, byte[] rendered, int width, int height)
+{
+    double totalSq = 0;
+    int count = 0;
+
+    // FLIR E8xt overlay mask
+    for (int y = 24; y < height - 28; y++)
+    for (int x = 4; x < width - 58; x++)
+    {
+        // Skip center crosshair area
+        int cx = width / 2, cy = height / 2;
+        if (Math.Abs(y - cy) < 2 && Math.Abs(x - cx) < 35) continue;
+        if (Math.Abs(x - cx) < 2 && Math.Abs(y - cy) < 35) continue;
+        if (Math.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) < 8) continue;
+
+        int idx = (y * width + x) * 4;
+        // Skip overlay pixels (bright, low saturation)
+        byte rRef = refPixels[idx + 2], gRef = refPixels[idx + 1], bRef = refPixels[idx];
+        int maxRef = Math.Max(rRef, Math.Max(gRef, bRef));
+        int minRef = Math.Min(rRef, Math.Min(gRef, bRef));
+        if ((rRef + gRef + bRef) / 3 > 180 && maxRef - minRef < 50) continue;
+
+        byte rRen = rendered[idx + 2], gRen = rendered[idx + 1], bRen = rendered[idx];
+        double dr = rRef - rRen, dg = gRef - gRen, db = bRef - bRen;
+        totalSq += dr * dr + dg * dg + db * db;
+        count++;
+    }
+
+    return count > 0 ? Math.Sqrt(totalSq / (count * 3.0)) : double.MaxValue;
 }
 
 static string FindRepositoryRoot()

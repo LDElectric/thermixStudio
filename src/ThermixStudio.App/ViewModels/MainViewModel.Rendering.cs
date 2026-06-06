@@ -113,7 +113,7 @@ public sealed partial class MainViewModel
             LevelMinC = appliedMin;
             LevelMaxC = appliedMax;
 
-            // Se VisualScale OCR foi detectado, exibe nos sliders
+            // Se VisualScale foi detectado, exibe nos sliders
             if (_loadedImage.Metadata.VisualScaleMinC.HasValue &&
                 _loadedImage.Metadata.VisualScaleMaxC.HasValue)
             {
@@ -152,9 +152,8 @@ public sealed partial class MainViewModel
         // LUT no PaletteScale (EXIF). Sliders fora → Linear.
         // ══════════════════════════════════════════════════════════════
         // LUT calibrada com mascara de overlay + mediana
-        // LUT somente para Iron/Original. Outras paletas: render linear (JSON).
-        bool isIronPalette = SelectedPalette == ThermalPalette.Iron || SelectedPalette == ThermalPalette.Original;
-        bool useLut = isIronPalette && hasOriginal && originalPixels is not null && ImageViewMode != ImageViewMode.Original && ImageViewMode != ImageViewMode.Visible && _loadedImage?.Temperatures is not null;
+        // LUT desabilitada — render linear puro (FLIR Tools behavior)
+        bool useLut = false;
 
         if (useLut)
         {
@@ -167,9 +166,7 @@ public sealed partial class MainViewModel
                 double buildMax = LevelMaxC;
                 if (buildMax <= buildMin) buildMax = buildMin + 0.01;
 
-                _temperatureLut = TemperatureColorLut.Build(
-                    img.Temperatures, orig, width, height,
-                    buildMin, buildMax, mask: OverlayMask.FlirE8xt, numBins: 256);
+                _temperatureLut = TemperatureColorLut.BuildPalette(img.Temperatures, orig, width, height, mask: OverlayMask.FlirE8xt);
                 Debug.WriteLine("[TEMP-LUT] Slider=" + buildMin.ToString("F1") + "~" + buildMax.ToString("F1") + " bins=4096");
             }
 

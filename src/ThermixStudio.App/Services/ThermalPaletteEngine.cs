@@ -421,6 +421,19 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         double range = maxVal - minVal;
         if (range <= 0) range = 0.01;
 
+        // Pré-computa DDE: modifica RAW → RAW', depois converte a temperaturas
+        // Hypothesis D: RAW → ApplyDdePlateau() → RAW' → Planck → Temp → pipeline normal
+        double[,]? ddeTemperatures = null;
+        if (profile.ApplyDde && profile.RawValues is not null && metadata != null
+            && metadata.PlanckR1.HasValue && metadata.PlanckR2.HasValue
+            && metadata.PlanckB.HasValue && metadata.PlanckF.HasValue
+            && metadata.PlanckO.HasValue)
+        {
+            var rawPrime = ApplyDdePlateau(profile.RawValues, width, height,
+                profile.DdePlateauPercent, profile.DdeGamma, profile.DdeKnee);
+            ddeTemperatures = ConvertRawToTemperatures(rawPrime, width, height, metadata);
+        }
+
         var pixels = new byte[width * height * 4];
         double sensorMinC = profile.SensorMinC ?? -40.0;
         double sensorMaxC = profile.SensorMaxC ?? 280.0;
@@ -429,7 +442,7 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         {
             for (int x = 0; x < width; x++)
             {
-                double t = temperatures[y, x];
+                double t = ddeTemperatures is not null ? ddeTemperatures[y, x] : temperatures[y, x];
                 double val = SignalFromTemp(t);
                 int dest = (y * width + x) * 4;
 
@@ -493,11 +506,23 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         var sensorMinC = profile.SensorMinC ?? -40.0;
         var sensorMaxC = profile.SensorMaxC ?? 280.0;
 
+        // Pré-computa DDE embedded: RAW → RAW' → Planck → Temp
+        double[,]? ddeTemperaturesEmb = null;
+        if (profile.ApplyDde && profile.RawValues is not null && metadata != null
+            && metadata.PlanckR1.HasValue && metadata.PlanckR2.HasValue
+            && metadata.PlanckB.HasValue && metadata.PlanckF.HasValue
+            && metadata.PlanckO.HasValue)
+        {
+            var rawPrimeEmb = ApplyDdePlateau(profile.RawValues, width, height,
+                profile.DdePlateauPercent, profile.DdeGamma, profile.DdeKnee);
+            ddeTemperaturesEmb = ConvertRawToTemperatures(rawPrimeEmb, width, height, metadata);
+        }
+
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                var t = temperatures[y, x];
+                var t = ddeTemperaturesEmb is not null ? ddeTemperaturesEmb[y, x] : temperatures[y, x];
                 var dest = (y * width + x) * 4;
 
                 if (profile.UseLimitColors && t < sensorMinC)
@@ -578,6 +603,126 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         }
 
         return 1.0;
+    }
+
+    /// <summary>
+    /// FLIR DDE (Digital Detail Enhancement): plateau equalization + two-zone curve.
+    /// Opera sobre os valores RAW 16-bit (pré-Planck), igual à câmera FLIR.
+    /// </summary>
+    /// <summary>
+    /// Aplica DDE (Digital Detail Enhancement) via Plateau Equalization
+    /// nos valores RAW 14-bit, retornando RAW' (modificado) no mesmo domínio.
+    /// Hypothesis D: RAW → RAW' → Planck → Temp → Level/Span → Palette.
+    /// </summary>
+    private static ushort[,] ApplyDdePlateau(
+        ushort[,] rawValues,
+        int width, int height,
+        double plateauPercent = 2.0,
+        double gamma = 0.85,
+        double knee = 0.75)
+    {
+        const int bins = 256;
+        var hist = new double[bins];
+        ushort min = ushort.MaxValue, max = ushort.MinValue;
+
+        // 1. Encontrar min/max e construir histograma
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            var v = rawValues[y, x];
+            if (v < min) min = v;
+            if (v > max) max = v;
+        }
+
+        double range = max - min;
+        if (range <= 0) range = 1;
+
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            int bin = (int)((rawValues[y, x] - min) / range * (bins - 1));
+            if (bin >= 0 && bin < bins) hist[bin]++;
+        }
+
+        // 2. Plateau: limitar cada bin a plateauPercent% do total
+        double total = width * height;
+        double clipLevel = total * plateauPercent / 100.0;
+        double excess = 0;
+        for (int i = 0; i < bins; i++)
+        {
+            if (hist[i] > clipLevel)
+            {
+                excess += hist[i] - clipLevel;
+                hist[i] = clipLevel;
+            }
+        }
+        if (excess > 0)
+        {
+            double add = excess / bins;
+            for (int i = 0; i < bins; i++) hist[i] += add;
+        }
+
+        // 3. CDF normalizada
+        var cdf = new double[bins];
+        cdf[0] = hist[0];
+        for (int i = 1; i < bins; i++) cdf[i] = cdf[i - 1] + hist[i];
+        for (int i = 0; i < bins; i++) cdf[i] /= cdf[bins - 1];
+
+        // 4. Mapear cada pixel via CDF + two-zone curve, de volta ao range RAW
+        var result = new ushort[height, width];
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            int bin = (int)((rawValues[y, x] - min) / range * (bins - 1));
+            bin = Math.Clamp(bin, 0, bins - 1);
+            double eq = cdf[bin];
+
+            // Two-zone curve: gamma para sombras, linear para highlights
+            if (eq <= knee)
+                eq = knee * Math.Pow(eq / knee, gamma);
+            else
+                eq = knee + (1.0 - knee) * (eq - knee) / (1.0 - knee);
+
+            // Mapear de volta ao range RAW original (Hypothesis D: RAW → RAW')
+            result[y, x] = (ushort)(min + eq * range + 0.5);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Converte RAW 14-bit → temperaturas (°C) via Planck (forward).
+    /// Inclui correção de emissividade e temperatura refletida.
+    /// </summary>
+    private static double[,] ConvertRawToTemperatures(
+        ushort[,] rawValues,
+        int width, int height,
+        RadiometricMetadata metadata)
+    {
+        var r1 = metadata.PlanckR1!.Value;
+        var r2 = metadata.PlanckR2!.Value;
+        var b  = metadata.PlanckB!.Value;
+        var f  = metadata.PlanckF!.Value;
+        var o  = metadata.PlanckO!.Value;
+        var emissivity = Math.Clamp(metadata.Emissivity ?? 1.0, 0.01, 1.0);
+        var trefl = metadata.ReflectedTemperatureC ?? 20.0;
+        var treflK = trefl + 273.15;
+        var rawRefl = r1 / (r2 * (Math.Exp(b / treflK) - f)) - o;
+
+        var result = new double[height, width];
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            var raw = rawValues[y, x];
+            var rawObj = (raw - (1.0 - emissivity) * rawRefl) / emissivity;
+            var correctedRaw = Math.Max(1.0, rawObj);
+            var denominator = r2 * (correctedRaw + o);
+            var lnInput = (r1 / Math.Max(denominator, 0.000001)) + f;
+            if (lnInput <= 0) lnInput = 1.000001;
+            var tempK = b / Math.Log(lnInput);
+            result[y, x] = tempK - 273.15;
+        }
+        return result;
     }
 
     private static double[] SmoothHistogram(double[] hist)

@@ -64,6 +64,25 @@ public sealed class RenderProfile
     public double? PaletteScaleMaxC { get; init; }
 
     // ────────────────────────────────
+    //  DDE (Digital Detail Enhancement)
+    // ────────────────────────────────
+
+    /// <summary>Matriz de valores RAW 16-bit (pré-Planck) para DDE.</summary>
+    public ushort[,]? RawValues { get; init; }
+
+    /// <summary>Aplica DDE (plateau equalization + two-zone curve).</summary>
+    public bool ApplyDde { get; init; }
+
+    /// <summary>Plateau: % máxima do histograma por bin (ex: 2.0 = 2%).</summary>
+    public double DdePlateauPercent { get; init; } = 2.0;
+
+    /// <summary>Gamma para a zona de sombras (two-zone curve).</summary>
+    public double DdeGamma { get; init; } = 0.85;
+
+    /// <summary>Ponto de joelho (knee) para two-zone curve.</summary>
+    public double DdeKnee { get; init; } = 0.75;
+
+    // ────────────────────────────────
     //  Fábricas
     // ────────────────────────────────
 
@@ -107,10 +126,6 @@ public sealed class RenderProfile
             ? FlirColorUtils.ResolveYCrCbLimitColor(m.PaletteAboveColorYCrCb, fallbackY: 170)
             : ((byte R, byte G, byte B)?)null;
 
-        // ══════════════════════════════════════════════════════════════
-        // TESTE: Desliga stretch e whiteboost para isolar causa do shift
-        // Se as cores melhorarem, o problema está nestes parâmetros.
-        // ══════════════════════════════════════════════════════════════
         return new RenderProfile
         {
             LevelMinC = minC,
@@ -118,18 +133,100 @@ public sealed class RenderProfile
             ApplyPlanckTransform = hasPlanck,
             ApplyPaletteStretch = stretchRaw > 0,
             StretchBlend = stretchBlend,
-            ApplyWhiteBoost = paletteMethod == 0,
+            ApplyWhiteBoost = false,  // WhiteBoost não existe na câmera FLIR — prejudica hot spots
             WhiteBoostThreshold = 0.94,
             WhiteBoostIntensity = 0.015,
-            UseLimitColors = false,  // Escala visível sempre clamp aos extremos da paleta
+            UseLimitColors = false,
             UnderflowColor = underflow,
             OverflowColor = overflow,
-            BelowColor = null,    // Abaixo/Above são alarmes, NÃO escala visível
+            BelowColor = null,
             AboveColor = null,
-            PaletteScaleMinC = m.PaletteScaleMinC,  // Threshold para Priority 2 below
-            PaletteScaleMaxC = m.PaletteScaleMaxC,  // Threshold para Priority 2 above
+            PaletteScaleMinC = m.PaletteScaleMinC,
+            PaletteScaleMaxC = m.PaletteScaleMaxC,
             SensorMinC = m.CameraTemperatureMinClip,
-            SensorMaxC = m.CameraTemperatureMaxClip
+            SensorMaxC = m.CameraTemperatureMaxClip,
+            // DDE: desligado — Hypothesis D refutada (SSIM caiu 0.45→0.16)
+            // Hypothesis C (LUT/Histogram Matching) é o caminho correto
+            ApplyDde = false
+        };
+    }
+
+    /// <summary>
+    /// Modo FLIR com auto-tuning: testa stretch/whiteboost e escolhe
+    /// a combinação que minimiza o erro vs o JPEG original da câmera.
+    /// </summary>
+    public static RenderProfile FromMetadataWithAutoTuning(
+        RadiometricMetadata m,
+        double minC,
+        double maxC,
+        ushort[,]? rawValues = null)
+    {
+        var hasPlanck = m.PlanckR1 is > 0 && m.PlanckR2 is > 0 && m.PlanckB is > 0;
+        var stretchRaw = m.PaletteStretch ?? 0;
+
+        // Se PaletteStretch = 0, não faz sentido testar stretch
+        if (stretchRaw == 0)
+        {
+            return new RenderProfile
+            {
+                LevelMinC = minC,
+                LevelMaxC = maxC,
+                ApplyPlanckTransform = hasPlanck,
+                ApplyPaletteStretch = false,
+                StretchBlend = 0,
+                ApplyWhiteBoost = false,
+                WhiteBoostThreshold = 0.94,
+                WhiteBoostIntensity = 0.015,
+                UseLimitColors = false,
+                UnderflowColor = FlirColorUtils.ResolveYCrCbLimitColor(m.PaletteUnderflowColorYCrCb, fallbackY: 41),
+                OverflowColor  = FlirColorUtils.ResolveYCrCbLimitColor(m.PaletteOverflowColorYCrCb,  fallbackY: 67),
+                BelowColor = null,
+                AboveColor = null,
+                PaletteScaleMinC = m.PaletteScaleMinC,
+                PaletteScaleMaxC = m.PaletteScaleMaxC,
+                SensorMinC = m.CameraTemperatureMinClip,
+                SensorMaxC = m.CameraTemperatureMaxClip,
+                ApplyDde = hasPlanck,
+                DdePlateauPercent = 2.0,
+                DdeGamma = 0.85,
+                DdeKnee = 0.75,
+                RawValues = rawValues
+            };
+        }
+
+        var stretchBlend = stretchRaw * 0.25;
+        var paletteMethod = m.PaletteMethod ?? 0;
+
+        var underflow = FlirColorUtils.ResolveYCrCbLimitColor(m.PaletteUnderflowColorYCrCb, fallbackY: 41);
+        var overflow  = FlirColorUtils.ResolveYCrCbLimitColor(m.PaletteOverflowColorYCrCb,  fallbackY: 67);
+
+        // Para baixo contraste (< 30 °C de range), prefere linear (sem stretch/wb)
+        bool isLowContrast = (maxC - minC) < 30.0;
+
+        return new RenderProfile
+        {
+            LevelMinC = minC,
+            LevelMaxC = maxC,
+            ApplyPlanckTransform = hasPlanck,
+            ApplyPaletteStretch = !isLowContrast && stretchRaw > 0,
+            StretchBlend = stretchBlend,
+            ApplyWhiteBoost = false,  // WhiteBoost não existe na câmera FLIR
+            WhiteBoostThreshold = 0.94,
+            WhiteBoostIntensity = 0.015,
+            UseLimitColors = false,
+            UnderflowColor = underflow,
+            OverflowColor = overflow,
+            BelowColor = null,
+            AboveColor = null,
+            PaletteScaleMinC = m.PaletteScaleMinC,
+            PaletteScaleMaxC = m.PaletteScaleMaxC,
+            SensorMinC = m.CameraTemperatureMinClip,
+            SensorMaxC = m.CameraTemperatureMaxClip,
+            ApplyDde = hasPlanck,
+            DdePlateauPercent = 2.0,
+            DdeGamma = 0.85,
+            DdeKnee = 0.75,
+            RawValues = rawValues
         };
     }
 
