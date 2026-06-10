@@ -474,17 +474,8 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                     continue;
                 }
 
-                if (profile.ApplyPaletteStretch)
-                {
-                    double stretched = ApplyFlirPaletteStretch(normalized);
-                    normalized = stretched * profile.StretchBlend + normalized * (1.0 - profile.StretchBlend);
-                }
-
-                if (profile.ApplyWhiteBoost)
-                {
-                    double wb = SmoothStep(profile.WhiteBoostThreshold, 0.99, normalized);
-                    normalized = Math.Clamp(normalized + (wb * profile.WhiteBoostIntensity), 0.0, 1.0);
-                }
+                // ── Camada 2: Tone Mapping (curva tonal do JPEG da câmera) ──
+                normalized = ApplyToneMapping(normalized, metadata?.ToneProfile);
 
                 WriteInterpolatedLutColor(lut, normalized, pixels, dest);
                 pixels[dest + 3] = 255;
@@ -502,11 +493,31 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         RadiometricMetadata? metadata)
     {
         var pixels = new byte[width * height * 4];
-        var range = Math.Max(0.01, maxT - minT);
         var sensorMinC = profile.SensorMinC ?? -40.0;
         var sensorMaxC = profile.SensorMaxC ?? 280.0;
 
-        // Pré-computa DDE embedded: RAW → RAW' → Planck → Temp
+        // ── Planck signal transform: camera maps SIGNAL→palette (non-linear), not °C→palette ──
+        double SignalFromTemp(double tempC)
+        {
+            if (!profile.ApplyPlanckTransform || metadata == null) return tempC;
+            double r1 = metadata.PlanckR1 ?? 0;
+            double r2 = metadata.PlanckR2 ?? 0;
+            double b  = metadata.PlanckB  ?? 0;
+            double f  = metadata.PlanckF  ?? 0;
+            double o  = metadata.PlanckO  ?? 0;
+            if (r1 <= 0 || r2 <= 0 || b <= 0) return tempC;
+            double tk = tempC + 273.15;
+            if (tk <= 0) return 0;
+            return r1 / (r2 * (Math.Exp(b / tk) - f)) - o;
+        }
+
+        double minVal = SignalFromTemp(minT);
+        double maxVal = SignalFromTemp(maxT);
+        if (minVal > maxVal) { var tmp = minVal; minVal = maxVal; maxVal = tmp; }
+        double range = maxVal - minVal;
+        if (range <= 0) range = 0.01;
+
+        // ── DDE (pré-computa) ──
         double[,]? ddeTemperaturesEmb = null;
         if (profile.ApplyDde && profile.RawValues is not null && metadata != null
             && metadata.PlanckR1.HasValue && metadata.PlanckR2.HasValue
@@ -536,8 +547,11 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                     continue;
                 }
 
-                var normalized = Math.Clamp((t - minT) / range, 0.0, 1.0);
-                                // Priority 2: below/above PALETTE scale (EXIF PaletteScaleMinC/MaxC)
+                // ── Planck signal-space normalization (same as camera) ──
+                double val = SignalFromTemp(t);
+                var normalized = Math.Clamp((val - minVal) / range, 0.0, 1.0);
+
+                // Priority 2: below/above PALETTE scale (EXIF PaletteScaleMinC/MaxC)
                 double belowThreshold = profile.PaletteScaleMinC ?? minT;
                 double aboveThreshold = profile.PaletteScaleMaxC ?? maxT;
                 if (profile.BelowColor.HasValue && t < belowThreshold)
@@ -551,17 +565,8 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
                     continue;
                 }
 
-                if (profile.ApplyPaletteStretch)
-                {
-                    double stretched = ApplyFlirPaletteStretch(normalized);
-                    normalized = stretched * profile.StretchBlend + normalized * (1.0 - profile.StretchBlend);
-                }
-
-                if (profile.ApplyWhiteBoost)
-                {
-                    double wb = SmoothStep(profile.WhiteBoostThreshold, 0.99, normalized);
-                    normalized = Math.Clamp(normalized + (wb * profile.WhiteBoostIntensity), 0.0, 1.0);
-                }
+                // ── Camada 2: Tone Mapping (curva tonal do JPEG da câmera) ──
+                normalized = ApplyToneMapping(normalized, metadata?.ToneProfile);
 
                 WriteInterpolatedLutColor(lut, normalized, pixels, dest);
                 pixels[dest + 3] = 255;
@@ -603,6 +608,19 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
         }
 
         return 1.0;
+    }
+
+    /// <summary>
+    /// Camada 2 — Tone Mapping: aplica a curva tonal extraída do JPEG da câmera.
+    /// Se o ToneProfile for nulo ou inválido, opera como identidade (sem alteração).
+    /// Esta camada replica o contraste/gamma que a câmera FLIR aplicou no JPEG.
+    /// </summary>
+    public static double ApplyToneMapping(double normalized, ThermalToneProfile? toneProfile)
+    {
+        if (toneProfile is not { IsValid: true })
+            return normalized;
+
+        return toneProfile.Map(normalized);
     }
 
     /// <summary>
@@ -932,7 +950,12 @@ public sealed class ThermalPaletteEngine : IThermalPaletteEngine
             
             // Paletas avançadas
             ["Turbo"] = "turbo_lut.json",
-            ["Twilight"] = "twilight_lut.json"
+            ["Twilight"] = "twilight_lut.json",
+
+            // Paletas FLIR extraídas de termogramas reais (Hypothesis C)
+            ["FlirIron"] = "flir_iron_lut.json",
+            ["FlirRainbow"] = "flir_rainbow_lut.json",
+            ["FlirGrayscale"] = "flir_grayscale_lut.json"
         };
 
         await Task.Run(() =>

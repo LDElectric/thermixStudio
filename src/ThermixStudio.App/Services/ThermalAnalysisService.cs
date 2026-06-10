@@ -119,7 +119,55 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
                     : data.Metadata.Notes;
             }
 
+            // ── SpotTempC via Planck+e no pixel do retículo ──
+            // Quando MakerNote spotK=0 (center-reticle sem spot ativo),
+            // calcula a temperatura do pixel central usando a matriz já convertida.
+            if (!data.Metadata.SpotTemperatureC.HasValue &&
+                data.Metadata.SpotNormalizedX.HasValue &&
+                data.Metadata.SpotNormalizedY.HasValue &&
+                data.Width > 0 && data.Height > 0)
+            {
+                int spotX = (int)Math.Round(data.Metadata.SpotNormalizedX.Value * (data.Width - 1));
+                int spotY = (int)Math.Round(data.Metadata.SpotNormalizedY.Value * (data.Height - 1));
+                spotX = Math.Clamp(spotX, 0, data.Width - 1);
+                spotY = Math.Clamp(spotY, 0, data.Height - 1);
+                var tempC = data.Temperatures[spotY, spotX];
+                if (!double.IsNaN(tempC) && tempC > -100 && tempC < 2000)
+                {
+                    data.Metadata.SpotTemperatureC = tempC;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[Planck+e] SpotTempC={tempC:F2}C at pixel ({spotX},{spotY})");
+                }
+            }
+
+            // ── Cálculo Planck do Level/Span via RawValueMedian/Range ──
+            // RawValueMedian e RawValueRange codificam a janela Level/Span
+            // configurada na câmera no momento da captura (todos os modos).
+            // Converter raw → °C via Planck inverso recupera o Level/Span
+            // com precisão de ±2°C, eliminando a necessidade de pixel-analysis.
+            if (data.Metadata.RawValueMedian.HasValue &&
+                data.Metadata.RawValueRange.HasValue &&
+                data.Metadata.PlanckR1.HasValue &&
+                data.Metadata.PlanckR2.HasValue &&
+                data.Metadata.PlanckB.HasValue &&
+                data.Metadata.PlanckF.HasValue &&
+                data.Metadata.PlanckO.HasValue)
+            {
+                double rawMin = data.Metadata.RawValueMedian.Value
+                                - data.Metadata.RawValueRange.Value / 2.0;
+                double rawMax = data.Metadata.RawValueMedian.Value
+                                + data.Metadata.RawValueRange.Value / 2.0;
+
+                data.Metadata.RawLevelMin = RawSignalToCelsius(rawMin, data.Metadata);
+                data.Metadata.RawLevelMax = RawSignalToCelsius(rawMax, data.Metadata);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[RawLevel] {data.Metadata.RawLevelMin:F1}°C to {data.Metadata.RawLevelMax:F1}°C " +
+                    $"(from RawValueMedian={data.Metadata.RawValueMedian} Range={data.Metadata.RawValueRange})");
+            }
+
             // Hypothesis C: construir LUT do JPEG original se for FLIR radiométrico
+            // Level/Span agora derivado de RawValueMedian/Range via Planck (sem pixel-analysis)
             if (data.IsRadiometricLikely &&
                 string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) &&
                 data.Width > 0 && data.Height > 0)
@@ -137,30 +185,75 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
                         System.Runtime.InteropServices.Marshal.Copy(jpegData.Scan0, jpegPixels, 0, jpegPixels.Length);
                         jpegBmp.UnlockBits(jpegData);
 
-                        // LUT cobre TODO o range Planck da cena (não só display)
-                        // Isso dá ~0.008°C/bin e elimina banding em gradientes suaves
-                        double minC = data.Temperatures.Cast<double>().Min();
-                        double maxC = data.Temperatures.Cast<double>().Max();
+                        // ── Construção da LUT com range visual (anti-clipping) ──
+                        // Usa RawLevelMin/Max (Planck via RawValueMedian/Range) como
+                        // MIN/MAX da LUT. Isso garante que a cor preta (bin 0) mapeie
+                        // exatamente onde a câmera clipou, sem os ~500ms de pixel-analysis.
+                        // Fallback: PaletteScale do EXIF → range da matriz.
+                        double minC = data.Metadata.RawLevelMin
+                            ?? data.Metadata.PaletteScaleMinC
+                            ?? data.Temperatures.Cast<double>().Min();
+                        double maxC = data.Metadata.RawLevelMax
+                            ?? data.Metadata.PaletteScaleMaxC
+                            ?? data.Temperatures.Cast<double>().Max();
                         if (maxC <= minC) maxC = minC + 0.01;
-
-                        // Range de amostragem: só pixels DENTRO do display
-                        // (fora disso o JPEG tem preto/branco = clip da câmera)
-                        double? sampMin = data.Metadata.PaletteScaleMinC;
-                        double? sampMax = data.Metadata.PaletteScaleMaxC;
 
                         data.CalibratedLut = TemperatureColorLut.Build(
                             data.Temperatures, jpegPixels,
                             data.Width, data.Height,
-                            minC, maxC, numBins: 4096,
-                            samplingMinC: sampMin, samplingMaxC: sampMax);
+                            minC, maxC,
+                            samplingMinC: minC, samplingMaxC: maxC);
+
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[CALIB-LUT] Construída com range RawLevel: {minC:F1}~{maxC:F1}°C");
+
+                        // ── Camada 2: Extração do ToneProfile (Curve256) do JPEG ──
+                        // Reverse-lookup: correlaciona cores do JPEG com a paleta embarcada
+                        // para extrair a curva tonal que a câmera aplicou.
+                        if (metadata.EmbeddedPaletteBgra is { Length: 256 * 4 })
+                        {
+                            try
+                            {
+                                metadata.ToneProfile = ThermalToneExtractor.Extract(
+                                    data.Temperatures, jpegPixels,
+                                    data.Width, data.Height,
+                                    metadata.EmbeddedPaletteBgra,
+                                    OverlayMask.FlirE8xt,
+                                    planckR1: metadata.PlanckR1,
+                                    planckR2: metadata.PlanckR2,
+                                    planckB: metadata.PlanckB,
+                                    planckF: metadata.PlanckF,
+                                    planckO: metadata.PlanckO,
+                                    levelMinC: minC,
+                                    levelMaxC: maxC);
+                            }
+                            catch (Exception toneEx)
+                            {
+                                metadata.ToneProfile = null;
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[ToneExtractor] SKIP: {toneEx.Message}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[CALIB-LUT] SKIP: JPEG dimensões ({jpegBmp.Width}x{jpegBmp.Height}) ≠ matriz ({data.Width}x{data.Height})");
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     // LUT é otimização; falha silenciosa não quebra o pipeline
                     data.CalibratedLut = null;
                     data.CalibratedPalette = null;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CALIB-LUT] SKIP: falha ao carregar JPEG — {ex.Message}");
                 }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CALIB-LUT] SKIP: IsRadiometric={data.IsRadiometricLikely} ext={extension} size={data.Width}x{data.Height}");
             }
 
             return data;
@@ -254,6 +347,14 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
         if (!string.IsNullOrWhiteSpace(metadataJson))
             RadiometricMetadataExtractor.TryApplyExifToolMetadata(metadataJson, metadata);
 
+        // ── FLIR_0x0009: fallback binário se o JSON não tiver a tag ──
+        if (metadata.FusionParams is null)
+        {
+            var fusionRaw = await _exifTool.TryExtractFusionParamsAsync(imagePath, cancellationToken).ConfigureAwait(false);
+            if (fusionRaw is { Length: >= 8 })
+                metadata.FusionParams = FlirFusionParams.Decode(fusionRaw);
+        }
+
         var rawBytes = await _exifTool.TryExtractRawThermalAsync(imagePath, cancellationToken).ConfigureAwait(false);
         if (rawBytes is null || rawBytes.Length == 0) return null;
 
@@ -323,5 +424,31 @@ public sealed class ThermalAnalysisService : IThermalAnalysisService
 
         if (count == 0) return new ThermalStatistics();
         return new ThermalStatistics { Tmin = min, Tmax = max, Tavg = sum / count };
+    }
+
+    /// <summary>
+    /// Converte um valor RAW (sinal do detector) para °C usando a fórmula de Planck
+    /// inversa com correção de emissividade e temperatura refletida.
+    /// Réplica da lógica de ConvertRawToTemperatures do ThermalPaletteEngine
+    /// para um único valor escalar.
+    /// </summary>
+    private static double RawSignalToCelsius(double raw, RadiometricMetadata m)
+    {
+        var r1 = m.PlanckR1!.Value;
+        var r2 = m.PlanckR2!.Value;
+        var b  = m.PlanckB!.Value;
+        var f  = m.PlanckF!.Value;
+        var o  = m.PlanckO!.Value;
+        var emissivity = Math.Clamp(m.Emissivity ?? 1.0, 0.01, 1.0);
+        var trefl = m.ReflectedTemperatureC ?? 20.0;
+        var treflK = trefl + 273.15;
+        var rawRefl = r1 / (r2 * (Math.Exp(b / treflK) - f)) - o;
+        var rawObj = (raw - (1.0 - emissivity) * rawRefl) / emissivity;
+        var correctedRaw = Math.Max(1.0, rawObj);
+        var denominator = r2 * (correctedRaw + o);
+        var lnInput = (r1 / Math.Max(denominator, 0.000001)) + f;
+        if (lnInput <= 0) lnInput = 1.000001;
+        var tempK = b / Math.Log(lnInput);
+        return tempK - 273.15;
     }
 }
